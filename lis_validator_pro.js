@@ -8,14 +8,14 @@ REFERENCE RANGE LIBRARY
 
 const REF_RANGES = {
 
-"SODIUM":{low:135,high:145},
-"POTASSIUM":{low:3.5,high:5.1},
+"SODIUM":{low:125,high:145},
+"POTASSIUM":{low:3.5,high:5.5},
 "CHLORIDE":{low:98,high:107},
 "UREA":{low:15,high:40},
-"CREATININE":{low:0.6,high:1.3},
-"URIC ACID":{low:3.4,high:7.0},
+"CREATININE":{low:0.6,high:5},
+"URIC ACID":{low:3.4,high:13},
 
-"TOTAL CALCIUM":{low:8.6,high:10.2},
+"TOTAL CALCIUM":{low:7,high:10.2},
 "CALCIUM":{low:8.6,high:10.2},
 "PHOSPHATE":{low:2.5,high:4.5},
 "MAGNESIUM":{low:1.7,high:2.2},
@@ -33,7 +33,9 @@ const REF_RANGES = {
 "GGT":{low:9,high:48},
 "LDH":{low:140,high:280},
 
-"GLUCOSE":{low:70,high:100},
+"RANDOM GLUCOSE":{low:70,high:100},
+"GLUCOSE PP":{low:70,high:400},
+"GLUCOSE FASTING":{low:70,high:400},
 "HBA1C":{low:4.0,high:5.6},
 
 "TSH":{low:0.4,high:4.0},
