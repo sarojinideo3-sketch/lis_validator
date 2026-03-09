@@ -2,7 +2,7 @@
 
 console.log("AIIMS LIS Validator Started");
 
-/* ---------------- PARAMETER LIST ---------------- */
+/* ---------------- PARAMETERS ---------------- */
 
 const REF_RANGES={
 
@@ -38,8 +38,6 @@ const REF_RANGES={
 
 };
 
-/* ---------------- CRITICAL VALUES ---------------- */
-
 const CRITICAL_VALUES={
 "POTASSIUM":{low:2.5,high:6.5},
 "SODIUM":{low:120,high:160},
@@ -51,7 +49,6 @@ const CRITICAL_VALUES={
 function getNumber(text){
 
 let m=text.match(/-?\d+(\.\d+)?/);
-
 return m?parseFloat(m[0]):null;
 
 }
@@ -62,7 +59,7 @@ let repeatList=[];
 
 /* ---------------- SCAN RESULTS ---------------- */
 
-let rows=document.querySelectorAll("table tbody tr");
+let rows=Array.from(document.querySelectorAll("table tbody tr")).slice(0,100);
 
 rows.forEach(row=>{
 
@@ -71,24 +68,21 @@ let cells=row.querySelectorAll("td");
 if(cells.length<3) return;
 
 let parameter=cells[0].innerText.trim().toUpperCase();
-
 let value=getNumber(cells[1].innerText);
 
 if(value==null) return;
 
 let ref=REF_RANGES[parameter];
-
 if(!ref) return;
 
 let abnormal=false;
 
-/* NEGATIVE VALUES */
+/* NEGATIVE */
 
 if(value<0){
 
 row.style.background="#7b1fa2";
 row.style.color="white";
-
 abnormal=true;
 
 }
@@ -98,7 +92,6 @@ abnormal=true;
 else if(value<ref.low){
 
 row.style.background="#b39ddb";
-
 abnormal=true;
 
 }
@@ -108,7 +101,6 @@ abnormal=true;
 else if(value>ref.high && value<=ref.high*1.2){
 
 row.style.background="#ffb347";
-
 abnormal=true;
 
 }
@@ -118,7 +110,6 @@ abnormal=true;
 else if(value>ref.high*1.2){
 
 row.style.background="#ff8fab";
-
 abnormal=true;
 
 }
@@ -132,6 +123,7 @@ let crit=CRITICAL_VALUES[parameter];
 if(value<crit.low || value>crit.high){
 
 row.style.background="#ff0000";
+abnormal=true;
 
 }
 
@@ -143,25 +135,31 @@ if(abnormal){
 
 repeatList.push(parameter+" : "+value+" (Ref "+ref.low+"-"+ref.high+")");
 
-/* FIND PATIENT ROW AND DESELECT */
+/* MOVE UP TO PATIENT PANEL */
 
-let patientRow=row.previousElementSibling;
+let node=row;
 
-while(patientRow){
+while(node && !/\d{15}/.test(node.innerText)){
+
+node=node.parentElement;
+
+}
+
+if(node){
+
+let patientRow=node.closest("tr");
+
+if(patientRow){
 
 let checkbox=patientRow.querySelector("input[type='checkbox']");
 
-if(checkbox){
+if(checkbox && checkbox.checked){
 
-if(checkbox.checked){
 checkbox.click();
-}
-
-break;
 
 }
 
-patientRow=patientRow.previousElementSibling;
+}
 
 }
 
@@ -192,7 +190,6 @@ panel.style.fontSize="13px";
 /* HEADER */
 
 let header=document.createElement("div");
-
 header.innerHTML="<b>Repeat Parameters</b>";
 
 panel.appendChild(header);
@@ -212,7 +209,6 @@ panel.appendChild(controls);
 /* BODY */
 
 let body=document.createElement("div");
-
 panel.appendChild(body);
 
 if(list.length===0){
@@ -222,9 +218,7 @@ body.innerHTML="No abnormal results";
 }else{
 
 list.forEach(r=>{
-
 body.innerHTML+=r+"<br>";
-
 });
 
 }
@@ -233,17 +227,9 @@ document.body.appendChild(panel);
 
 /* BUTTON ACTIONS */
 
-document.getElementById("minBtn").onclick=()=>{
-body.style.display="none";
-};
-
-document.getElementById("maxBtn").onclick=()=>{
-body.style.display="block";
-};
-
-document.getElementById("closeBtn").onclick=()=>{
-panel.remove();
-};
+document.getElementById("minBtn").onclick=()=>{body.style.display="none";};
+document.getElementById("maxBtn").onclick=()=>{body.style.display="block";};
+document.getElementById("closeBtn").onclick=()=>{panel.remove();};
 
 document.getElementById("printBtn").onclick=()=>{
 
