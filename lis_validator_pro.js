@@ -43,7 +43,6 @@ const REF_RANGES = {
 "FREE T4":{low:0.8,high:1.8},
 
 "PROLACTIN":{low:4,high:23},
-
 "PROCALCITONIN":{low:0,high:0.5},
 
 "VITAMIN B12":{low:200,high:900},
@@ -89,9 +88,54 @@ let ref=REF_RANGES[parameter];
 
 results[parameter]=value;
 
-if(value<ref.low || value>ref.high){
+/* =========================
+COLOR LOGIC
+========================= */
 
-row.style.background="#ffb347";
+let abnormal=false;
+
+/* NEGATIVE VALUES */
+
+if(value < 0){
+
+row.style.background="#8a2be2";
+row.style.color="white";
+abnormal=true;
+
+}
+
+/* LOW VALUES */
+
+else if(value < ref.low){
+
+row.style.background="#d8b4fe";
+abnormal=true;
+
+}
+
+/* SLIGHTLY HIGH */
+
+else if(value > ref.high && value <= ref.high*1.2){
+
+row.style.background="#fff176";
+abnormal=true;
+
+}
+
+/* VERY HIGH */
+
+else if(value > ref.high*1.2){
+
+row.style.background="#ff8fab";
+abnormal=true;
+
+}
+
+/* =========================
+ADD TO REPEAT LIST
+========================= */
+
+if(abnormal){
 
 repeatList.push(parameter+" : "+value+" (Ref "+ref.low+"-"+ref.high+")");
 
@@ -132,7 +176,6 @@ REPEAT PANEL
 ========================= */
 
 createRepeatPanel(repeatList);
-
 
 /* =========================
 SMART RULES
