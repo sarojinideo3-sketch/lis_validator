@@ -1,262 +1,302 @@
 (function(){
 
-console.log("LIS Validator Pro Running");
+console.log("LIS Validation Assistant Started");
 
-/* =========================
-REFERENCE RANGE LIBRARY
-========================= */
+/* -----------------------------
+GLOBAL VARIABLES
+----------------------------- */
 
-const REF_RANGES = {
+let results=[];
+let repeats=[];
+let alerts=[];
+
+/* -----------------------------
+REFERENCE RANGES
+----------------------------- */
+
+const REF_RANGES={
 
 "SODIUM":{low:135,high:145},
-"POTASSIUM":{low:3.5,high:5.1},
+"POTASSIUM":{low:3.5,high:5},
 "CHLORIDE":{low:98,high:107},
-"UREA":{low:15,high:40},
+"UREA":{low:17,high:43},
 "CREATININE":{low:0.6,high:1.3},
-"URIC ACID":{low:3.4,high:7.0},
 
-"TOTAL CALCIUM":{low:8.6,high:10.2},
-"CALCIUM":{low:8.6,high:10.2},
-"PHOSPHATE":{low:2.5,high:4.5},
+"URIC ACID":{low:4.4,high:8},
+
+"CALCIUM":{low:9,high:11},
 "MAGNESIUM":{low:1.7,high:2.2},
 
-"TOTAL PROTEIN":{low:6.4,high:8.3},
-"ALBUMIN":{low:3.5,high:5.0},
+"TOTAL PROTEIN":{low:6.7,high:8.6},
+"ALBUMIN":{low:3.5,high:5.2},
+
+"AST":{low:5,high:50},
+"ALT":{low:5,high:50},
 
 "TOTAL BILIRUBIN":{low:0.3,high:1.2},
-"DIRECT BILIRUBIN":{low:0.1,high:0.3},
-"INDIRECT BILIRUBIN":{low:0.2,high:0.9},
 
-"AST":{low:10,high:40},
-"ALT":{low:7,high:56},
-"ALP":{low:44,high:147},
-"GGT":{low:9,high:48},
-"LDH":{low:140,high:280},
-
-"GLUCOSE":{low:70,high:100},
-"HBA1C":{low:4.0,high:5.6},
-
-"TSH":{low:0.4,high:4.0},
-"T3":{low:80,high:200},
-"T4":{low:5,high:12},
-"FREE T3":{low:2.0,high:4.4},
+"TSH":{low:0.4,high:4},
+"FREE T3":{low:2,high:4.4},
 "FREE T4":{low:0.8,high:1.8},
 
 "PROLACTIN":{low:4,high:23},
 
-"PROCALCITONIN":{low:0,high:0.5},
-
-"VITAMIN B12":{low:200,high:900},
-"VITAMIN D":{low:30,high:100},
-
-"FERRITIN":{low:30,high:400}
+"PROCALCITONIN":{low:0,high:0.5}
 
 };
 
-/* =========================
+/* -----------------------------
+CRITICAL VALUES
+----------------------------- */
+
+const CRITICAL_VALUES={
+
+"POTASSIUM":{low:2.5,high:6.5},
+"SODIUM":{low:120,high:160},
+"CALCIUM":{low:6,high:13}
+
+};
+
+/* -----------------------------
 UTILITY
-========================= */
+----------------------------- */
 
 function getNumber(text){
+
 let m=text.match(/-?\d+(\.\d+)?/);
+
 return m?parseFloat(m[0]):null;
+
 }
 
-/* =========================
-SCAN LIS PAGE
-========================= */
+/* -----------------------------
+SCAN RESULTS
+----------------------------- */
 
-let repeatList=[];
-let results={};
+function scanResults(){
 
-let rows=document.querySelectorAll("tr");
+results=[];
+repeats=[];
+alerts=[];
+
+let rows=document.querySelectorAll("table tbody tr");
 
 rows.forEach(row=>{
 
 let cells=row.querySelectorAll("td");
 
-if(cells.length<2) return;
+if(cells.length<6) return;
 
-let parameter=cells[0].innerText.trim().toUpperCase();
+let param=cells[1].innerText.trim().toUpperCase();
 
-parameter=parameter.replace(/\(.*?\)/g,"").trim();
+let result=getNumber(cells[2].innerText);
 
-let value=getNumber(cells[1].innerText);
+let prev=getNumber(cells[3].innerText);
 
-if(!REF_RANGES[parameter]) return;
+let refRange=REF_RANGES[param];
 
-let ref=REF_RANGES[parameter];
+if(!refRange) return;
 
-results[parameter]=value;
+let status="Normal";
 
-if(value<ref.low || value>ref.high){
+/* LOW */
 
-row.style.background="#ffb347";
+if(result<refRange.low){
 
-repeatList.push(parameter+" : "+value+" (Ref "+ref.low+"-"+ref.high+")");
+status="Low";
 
-/* FIND CR ROW */
-
-let node=row;
-
-while(node && !/\d{15}/.test(node.innerText)){
-node=node.previousElementSibling || node.parentElement;
-}
-
-if(node){
-
-let checkbox=node.querySelector("input[type='checkbox']");
-
-if(checkbox && checkbox.checked){
-
-checkbox.click();
+row.style.background="#d9ecff";
 
 }
 
+/* HIGH */
+
+if(result>refRange.high){
+
+status="High";
+
+row.style.background="#ffd9d9";
+
 }
+
+/* CRITICAL */
+
+if(CRITICAL_VALUES[param]){
+
+let crit=CRITICAL_VALUES[param];
+
+if(result<crit.low || result>crit.high){
+
+status="CRITICAL";
+
+alerts.push("Critical Value: "+param+" "+result);
+
+row.style.background="#ff4d4d";
+
+}
+
+}
+
+/* DELTA CHECK */
+
+if(prev){
+
+let delta=Math.abs(result-prev)/prev*100;
+
+if(delta>50){
+
+alerts.push("Delta Check Alert: "+param);
+
+}
+
+}
+
+/* SAVE RESULT */
+
+results.push({
+
+param: param,
+value: result,
+prev: prev,
+status: status
+
+});
+
+if(status!=="Normal"){
+
+repeats.push(param+" : "+result);
 
 }
 
 });
 
-/* =========================
-SMART VALIDATION RULES
-========================= */
+patternCheck();
 
-checkHemolysis(results);
-checkClot(results);
-checkDilution(results);
+updateAssistant();
 
-/* =========================
-REPEAT PANEL
-========================= */
+}
 
-createRepeatPanel(repeatList);
+/* -----------------------------
+PATTERN RECOGNITION
+----------------------------- */
 
+function patternCheck(){
 
-/* =========================
-SMART RULES
-========================= */
+let albumin=getValue("ALBUMIN");
 
-function checkHemolysis(r){
+let tp=getValue("TOTAL PROTEIN");
 
-if(r["POTASSIUM"]>5.5 && r["AST"]>80 && r["LDH"]>400){
+if(albumin && tp){
 
-alert("Possible Hemolysis Detected");
+if(albumin>tp){
+
+alerts.push("Logical Error: Albumin > Total Protein");
 
 }
 
 }
 
-function checkClot(r){
+let k=getValue("POTASSIUM");
 
-if(r["POTASSIUM"]>5.5 && r["CALCIUM"]<8 && r["TOTAL PROTEIN"]<6){
+let ast=getValue("AST");
 
-alert("Possible Clotted Sample");
+if(k>5.5 && ast>80){
 
-}
-
-}
-
-function checkDilution(r){
-
-if(r["SODIUM"]<130 && r["CHLORIDE"]<95 && r["CALCIUM"]<8){
-
-alert("Possible Dilution Error");
+alerts.push("Possible Hemolysis");
 
 }
 
 }
 
-/* =========================
-REPEAT PANEL
-========================= */
+/* -----------------------------
+GET VALUE
+----------------------------- */
 
-function createRepeatPanel(list){
+function getValue(name){
+
+let r=results.find(x=>x.param===name);
+
+return r?r.value:null;
+
+}
+
+/* -----------------------------
+VALIDATION ASSISTANT
+----------------------------- */
+
+function createAssistant(){
 
 let panel=document.createElement("div");
 
+panel.id="validationAssistant";
+
 panel.style.position="fixed";
+panel.style.bottom="20px";
 panel.style.right="20px";
-panel.style.top="120px";
-panel.style.width="380px";
+panel.style.width="320px";
 panel.style.background="white";
-panel.style.border="2px solid black";
+panel.style.border="1px solid #ccc";
 panel.style.zIndex="9999";
 panel.style.fontFamily="Arial";
 
-/* HEADER */
+panel.innerHTML=`
+<div style="background:#1e3a5f;color:white;padding:8px">
+Validation Assistant
+<span id="closeVA" style="float:right;cursor:pointer">✖</span>
+</div>
 
-let header=document.createElement("div");
+<div style="padding:10px">
 
-header.style.background="#1e3a5f";
-header.style.color="white";
-header.style.padding="6px";
-header.style.display="flex";
-header.style.justifyContent="space-between";
+<button id="scanBtn">▶ Scan Results</button>
+<button id="printBtn">Print Repeats</button>
 
-header.innerHTML="<b>Repeat Parameters</b>";
+<div id="alertsBox" style="margin-top:10px;color:red"></div>
 
-panel.appendChild(header);
+<div style="margin-top:10px">
 
-/* BUTTONS */
+<b>System Status</b><br>
 
-let buttons=document.createElement("div");
+<span id="statusText">Ready to validate</span>
 
-buttons.innerHTML=`
-<button id="minBtn">–</button>
-<button id="maxBtn">□</button>
-<button id="printBtn">🖨</button>
-<button id="closeBtn">✖</button>
+</div>
+
+</div>
 `;
-
-header.appendChild(buttons);
-
-/* BODY */
-
-let body=document.createElement("div");
-
-body.id="repeatBody";
-
-body.style.padding="8px";
-body.style.maxHeight="350px";
-body.style.overflow="auto";
-
-panel.appendChild(body);
-
-/* DATA */
-
-if(list.length===0){
-
-body.innerHTML="No abnormal parameters";
-
-}else{
-
-list.forEach(r=>{
-
-let row=document.createElement("div");
-row.innerText=r;
-body.appendChild(row);
-
-});
-
-}
 
 document.body.appendChild(panel);
 
-/* BUTTON FUNCTIONS */
+/* BUTTON EVENTS */
 
-document.getElementById("minBtn").onclick=()=>body.style.display="none";
-document.getElementById("maxBtn").onclick=()=>body.style.display="block";
-document.getElementById("closeBtn").onclick=()=>panel.remove();
+document.getElementById("scanBtn").onclick=scanResults;
 
-document.getElementById("printBtn").onclick=function(){
+document.getElementById("printBtn").onclick=printRepeats;
+
+document.getElementById("closeVA").onclick=()=>panel.remove();
+
+}
+
+/* -----------------------------
+UPDATE PANEL
+----------------------------- */
+
+function updateAssistant(){
+
+document.getElementById("alertsBox").innerHTML=
+alerts.map(a=>"• "+a).join("<br>");
+
+}
+
+/* -----------------------------
+PRINT REPEAT LIST
+----------------------------- */
+
+function printRepeats(){
 
 let w=window.open("","","width=600,height=600");
 
-w.document.write("<h3>Repeat Parameters</h3>");
+w.document.write("<h3>Repeat Tests</h3>");
 
-list.forEach(r=>{
+repeats.forEach(r=>{
 
 w.document.write("<p>"+r+"</p>");
 
@@ -264,8 +304,12 @@ w.document.write("<p>"+r+"</p>");
 
 w.print();
 
-};
-
 }
+
+/* -----------------------------
+START PROGRAM
+----------------------------- */
+
+createAssistant();
 
 })();
