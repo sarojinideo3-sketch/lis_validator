@@ -19,7 +19,11 @@ const REF_RANGES = {
 "TOTAL CALCIUM":{low:7,high:10.2},
 "CALCIUM":{low:8.6,high:10.2},
 "PHOSPHATE":{low:2.5,high:4.5},
-"Mg":{low:1.7,high:2.2},
+"MG":{low:1.7,high:2.2},
+"TOTAL CHOLESTEROL":{low:100,high:300},
+"TRIGLYCERIDES":{low:100,high:350},
+"HDL":{low:20,high:60},
+"LDL":{low:90,high:130},
 
 "TOTAL PROTEIN":{low:6.4,high:8.3},
 "ALBUMIN":{low:3.5,high:5.0},
