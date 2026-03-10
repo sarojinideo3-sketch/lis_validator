@@ -8,13 +8,15 @@ REFERENCE RANGE LIBRARY
 
 const REF_RANGES = {
 
-"SODIUM":{low:125,high:145},
-"POTASSIUM":{low:3.5,high:5.5},
-"CHLORIDE":{low:98,high:107},
-"UREA":{low:15,high:40},
+"SODIUM":{low:120,high:145},
+"POTASSIUM":{low:2.5,high:5.5},
+"CHLORIDE":{low:80,high:118},
+"UREA":{low:15,high:100},
 "CREATININE":{low:0.6,high:5},
 "URIC ACID":{low:3.4,high:13},
-
+"AMYLASE":{low:28,high:700},
+"C REACTIVE PROTEIN":{low:0.001,high:200},
+"MG TEST":{low:1.7,high:2.8},
 "TOTAL CALCIUM":{low:7,high:10.2},
 "CALCIUM":{low:8.6,high:10.2},
 "PHOSPHATE":{low:2.5,high:4.5},
@@ -33,10 +35,10 @@ const REF_RANGES = {
 "GGT":{low:9,high:48},
 "LDH":{low:140,high:280},
 
-"RANDOM GLUCOSE":{low:70,high:100},
-"GLUCOSE PP":{low:70,high:400},
+"RANDOM GLUCOSE":{low:60,high:100},
+"GLUCOSE PP":{low:60,high:400},
 "GLUCOSE FASTING":{low:70,high:400},
-"HBA1C":{low:4.0,high:5.6},
+"HBA1C":{low:4.0,high:6},
 
 "TSH":{low:0.4,high:4.0},
 "T3":{low:80,high:200},
