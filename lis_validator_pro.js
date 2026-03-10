@@ -16,11 +16,10 @@ const REF_RANGES = {
 "URIC ACID":{low:3.4,high:13},
 "AMYLASE":{low:28,high:700},
 "C REACTIVE PROTEIN":{low:0.001,high:200},
-"MG TEST":{low:1.7,high:2.8},
 "TOTAL CALCIUM":{low:7,high:10.2},
 "CALCIUM":{low:8.6,high:10.2},
 "PHOSPHATE":{low:2.5,high:4.5},
-"MAGNESIUM":{low:1.7,high:2.2},
+"Mg":{low:1.7,high:2.2},
 
 "TOTAL PROTEIN":{low:6.4,high:8.3},
 "ALBUMIN":{low:3.5,high:5.0},
