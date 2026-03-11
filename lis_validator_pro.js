@@ -1,3 +1,4 @@
+
 (function(){
 
 console.log("LIS Validator Pro Running");
@@ -8,22 +9,17 @@ REFERENCE RANGE LIBRARY
 
 const REF_RANGES = {
 
-"SODIUM":{low:120,high:145},
-"POTASSIUM":{low:2.5,high:5.5},
-"CHLORIDE":{low:80,high:118},
-"UREA":{low:15,high:100},
-"CREATININE":{low:0.6,high:5},
-"URIC ACID":{low:3.4,high:13},
-"AMYLASE":{low:28,high:700},
-"C REACTIVE PROTEIN":{low:0.001,high:200},
-"TOTAL CALCIUM":{low:7,high:10.2},
+"SODIUM":{low:135,high:145},
+"POTASSIUM":{low:3.5,high:5.1},
+"CHLORIDE":{low:98,high:107},
+"UREA":{low:15,high:40},
+"CREATININE":{low:0.6,high:1.3},
+"URIC ACID":{low:3.4,high:7.0},
+
+"TOTAL CALCIUM":{low:8.6,high:10.2},
 "CALCIUM":{low:8.6,high:10.2},
 "PHOSPHATE":{low:2.5,high:4.5},
-"MG":{low:1.7,high:2.2},
-"TOTAL CHOLESTEROL":{low:100,high:300},
-"TRIGLYCERIDES":{low:100,high:350},
-"HDL":{low:20,high:60},
-"LDL":{low:90,high:130},
+"MAGNESIUM":{low:1.7,high:2.2},
 
 "TOTAL PROTEIN":{low:6.4,high:8.3},
 "ALBUMIN":{low:3.5,high:5.0},
@@ -38,11 +34,7 @@ const REF_RANGES = {
 "GGT":{low:9,high:48},
 "LDH":{low:140,high:280},
 
-"RANDOM BLOOD SUGAR":{low:60,high:400},
-"RANDOM PLASMA GLUCOSE ":{low:60,high:400},
-"GLUCOSE PP":{low:60,high:400},
-"FASTING BLOOD SUGAR":{low:70,high:400},
-"HBA1C":{low:4.0,high:6},
+"GLUCOSE":{low:70,high:100},
 
 "TSH":{low:0.4,high:4.0},
 "T3":{low:80,high:200},
@@ -70,6 +62,30 @@ return m?parseFloat(m[0]):null;
 }
 
 /* =========================
+NORMALIZE PARAMETER NAMES
+========================= */
+
+function normalizeParameter(name){
+
+name=name.toUpperCase();
+
+if(name.includes("MAGNESIUM")) return "MAGNESIUM";
+
+if(name.includes("GLUCOSE")) return "GLUCOSE";
+
+if(name.includes("FASTING")) return "GLUCOSE";
+
+if(name.includes("RANDOM")) return "GLUCOSE";
+
+if(name.includes("PP")) return "GLUCOSE";
+
+if(name.includes("ADA FLUID")) return "GLUCOSE";
+
+return name;
+
+}
+
+/* =========================
 SCAN LIS PAGE
 ========================= */
 
@@ -88,6 +104,10 @@ let parameter=cells[0].innerText.trim().toUpperCase();
 
 parameter=parameter.replace(/\(.*?\)/g,"").trim();
 
+/* normalize parameter */
+
+parameter=normalizeParameter(parameter);
+
 let value=getNumber(cells[1].innerText);
 
 if(!REF_RANGES[parameter]) return;
@@ -102,9 +122,9 @@ COLOR LOGIC
 
 let abnormal=false;
 
-/* NEGATIVE VALUES */
+/* NEGATIVE */
 
-if(value < 0){
+if(value<0){
 
 row.style.background="#8a2be2";
 row.style.color="white";
@@ -112,9 +132,9 @@ abnormal=true;
 
 }
 
-/* LOW VALUES */
+/* LOW */
 
-else if(value < ref.low){
+else if(value<ref.low){
 
 row.style.background="#d8b4fe";
 abnormal=true;
@@ -123,7 +143,7 @@ abnormal=true;
 
 /* SLIGHTLY HIGH */
 
-else if(value > ref.high && value <= ref.high*1.2){
+else if(value>ref.high && value<=ref.high*1.2){
 
 row.style.background="#fff176";
 abnormal=true;
@@ -132,7 +152,7 @@ abnormal=true;
 
 /* VERY HIGH */
 
-else if(value > ref.high*1.2){
+else if(value>ref.high*1.2){
 
 row.style.background="#ff8fab";
 abnormal=true;
@@ -160,9 +180,7 @@ if(node){
 let checkbox=node.querySelector("input[type='checkbox']");
 
 if(checkbox && checkbox.checked){
-
 checkbox.click();
-
 }
 
 }
@@ -172,52 +190,10 @@ checkbox.click();
 });
 
 /* =========================
-SMART VALIDATION RULES
-========================= */
-
-checkHemolysis(results);
-checkClot(results);
-checkDilution(results);
-
-/* =========================
 REPEAT PANEL
 ========================= */
 
 createRepeatPanel(repeatList);
-
-/* =========================
-SMART RULES
-========================= */
-
-function checkHemolysis(r){
-
-if(r["POTASSIUM"]>5.5 && r["AST"]>80 && r["LDH"]>400){
-
-alert("Possible Hemolysis Detected");
-
-}
-
-}
-
-function checkClot(r){
-
-if(r["POTASSIUM"]>5.5 && r["CALCIUM"]<8 && r["TOTAL PROTEIN"]<6){
-
-alert("Possible Clotted Sample");
-
-}
-
-}
-
-function checkDilution(r){
-
-if(r["SODIUM"]<130 && r["CHLORIDE"]<95 && r["CALCIUM"]<8){
-
-alert("Possible Dilution Error");
-
-}
-
-}
 
 /* =========================
 REPEAT PANEL
@@ -267,15 +243,11 @@ header.appendChild(buttons);
 
 let body=document.createElement("div");
 
-body.id="repeatBody";
-
 body.style.padding="8px";
 body.style.maxHeight="350px";
 body.style.overflow="auto";
 
 panel.appendChild(body);
-
-/* DATA */
 
 if(list.length===0){
 
@@ -284,11 +256,9 @@ body.innerHTML="No abnormal parameters";
 }else{
 
 list.forEach(r=>{
-
 let row=document.createElement("div");
 row.innerText=r;
 body.appendChild(row);
-
 });
 
 }
@@ -308,9 +278,7 @@ let w=window.open("","","width=600,height=600");
 w.document.write("<h3>Repeat Parameters</h3>");
 
 list.forEach(r=>{
-
 w.document.write("<p>"+r+"</p>");
-
 });
 
 w.print();
