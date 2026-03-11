@@ -39,7 +39,7 @@ const REF_RANGES = {
 "LDH":{low:140,high:280},
 
 "RANDOM BLOOD SUGAR":{low:60,high:400},
-"RANDOM GLUCOSE ":{low:60,high:400},
+"RANDOM PLASMA GLUCOSE ":{low:60,high:400},
 "GLUCOSE PP":{low:60,high:400},
 "FASTING BLOOD SUGAR":{low:70,high:400},
 "HBA1C":{low:4.0,high:6},
