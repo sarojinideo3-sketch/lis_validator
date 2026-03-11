@@ -1,3 +1,5 @@
+
+
 (function(){
 
 console.log("LIS Validator Pro Running");
@@ -58,7 +60,7 @@ const REF_RANGES={
 };
 
 /* =========================
-UTILITY FUNCTIONS
+UTILITY
 ========================= */
 
 function getNumber(text){
@@ -74,15 +76,31 @@ function normalizeParameter(name){
 
 name=name.toUpperCase();
 
+/* MAGNESIUM SUPPORT */
+
+if(
+name.includes("MAGNESIUM") ||
+name.startsWith("MG") ||
+name.includes("MG (")
+){
+return "MAGNESIUM";
+}
+
+/* GLUCOSE VARIANTS */
+
 if(name.includes("FASTING")) return "GLUCOSE";
 if(name.includes("RANDOM")) return "GLUCOSE";
 if(name.includes("PP")) return "GLUCOSE";
 if(name.includes("ADA")) return "GLUCOSE";
+if(name.includes("GLUCOSE")) return "GLUCOSE";
 
-if(name.includes("MAGNESIUM")) return "MAGNESIUM";
+/* LIPID PROFILE */
 
 if(name.includes("CHOLESTEROL")) return "CHOLESTEROL";
 if(name.includes("TRIGLYCERIDE")) return "TRIGLYCERIDES";
+if(name.includes("HDL")) return "HDL";
+if(name.includes("LDL")) return "LDL";
+if(name.includes("VLDL")) return "VLDL";
 
 return name;
 
@@ -122,43 +140,33 @@ let abnormal=false;
 /* NEGATIVE */
 
 if(value<0){
-
 row.style.background="#8a2be2";
 row.style.color="white";
 abnormal=true;
-
 }
 
 /* LOW */
 
 else if(value<ref.low){
-
 row.style.background="#d8b4fe";
 abnormal=true;
-
 }
 
 /* SLIGHTLY HIGH */
 
 else if(value>ref.high && value<=ref.high*1.2){
-
 row.style.background="#fff176";
 abnormal=true;
-
 }
 
 /* VERY HIGH */
 
 else if(value>ref.high*1.2){
-
 row.style.background="#ff8fab";
 abnormal=true;
-
 }
 
-/* =========================
-HANDLE ABNORMAL
-========================= */
+/* HANDLE ABNORMAL */
 
 if(abnormal){
 
@@ -176,7 +184,6 @@ node=node.previousElementSibling || node.parentElement;
 if(node){
 
 let match=node.innerText.match(/\d{15}/);
-
 if(match) cr=match[0];
 
 let checkbox=node.querySelector("input[type='checkbox']");
@@ -188,7 +195,7 @@ deselectedPatients++;
 
 }
 
-/* STORE PATIENT-WISE REPEAT */
+/* STORE REPEAT */
 
 repeatList.push({
 cr:cr,
@@ -207,13 +214,13 @@ REPEAT PANEL
 createRepeatPanel(repeatList);
 
 /* =========================
-VALIDATION ASSISTANT
+VALIDATION DASHBOARD
 ========================= */
 
 createValidationAssistant(totalRows,abnormalCount,deselectedPatients);
 
 /* =========================
-REPEAT PANEL FUNCTION
+REPEAT PANEL
 ========================= */
 
 function createRepeatPanel(list){
