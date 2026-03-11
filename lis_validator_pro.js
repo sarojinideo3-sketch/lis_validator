@@ -1,4 +1,3 @@
-
 (function(){
 
 console.log("LIS Validator Pro Running");
@@ -7,22 +6,22 @@ console.log("LIS Validator Pro Running");
 REFERENCE RANGE LIBRARY
 ========================= */
 
-const REF_RANGES = {
+const REF_RANGES={
 
 "SODIUM":{low:135,high:145},
 "POTASSIUM":{low:3.5,high:5.1},
 "CHLORIDE":{low:98,high:107},
 "UREA":{low:15,high:40},
 "CREATININE":{low:0.6,high:1.3},
-"URIC ACID":{low:3.4,high:7.0},
+"URIC ACID":{low:3.4,high:7},
 
-"TOTAL CALCIUM":{low:8.6,high:10.2},
 "CALCIUM":{low:8.6,high:10.2},
+"TOTAL CALCIUM":{low:8.6,high:10.2},
 "PHOSPHATE":{low:2.5,high:4.5},
 "MAGNESIUM":{low:1.7,high:2.2},
 
 "TOTAL PROTEIN":{low:6.4,high:8.3},
-"ALBUMIN":{low:3.5,high:5.0},
+"ALBUMIN":{low:3.5,high:5},
 
 "TOTAL BILIRUBIN":{low:0.3,high:1.2},
 "DIRECT BILIRUBIN":{low:0.1,high:0.3},
@@ -36,10 +35,16 @@ const REF_RANGES = {
 
 "GLUCOSE":{low:70,high:100},
 
-"TSH":{low:0.4,high:4.0},
+"CHOLESTEROL":{low:125,high:200},
+"TRIGLYCERIDES":{low:0,high:150},
+"HDL":{low:40,high:80},
+"LDL":{low:0,high:130},
+"VLDL":{low:5,high:40},
+
+"TSH":{low:0.4,high:4},
 "T3":{low:80,high:200},
 "T4":{low:5,high:12},
-"FREE T3":{low:2.0,high:4.4},
+"FREE T3":{low:2,high:4.4},
 "FREE T4":{low:0.8,high:1.8},
 
 "PROLACTIN":{low:4,high:23},
@@ -53,7 +58,7 @@ const REF_RANGES = {
 };
 
 /* =========================
-UTILITY
+UTILITY FUNCTIONS
 ========================= */
 
 function getNumber(text){
@@ -62,24 +67,22 @@ return m?parseFloat(m[0]):null;
 }
 
 /* =========================
-NORMALIZE PARAMETER NAMES
+PARAMETER NORMALIZATION
 ========================= */
 
 function normalizeParameter(name){
 
 name=name.toUpperCase();
 
+if(name.includes("FASTING")) return "GLUCOSE";
+if(name.includes("RANDOM")) return "GLUCOSE";
+if(name.includes("PP")) return "GLUCOSE";
+if(name.includes("ADA")) return "GLUCOSE";
+
 if(name.includes("MAGNESIUM")) return "MAGNESIUM";
 
-if(name.includes("GLUCOSE")) return "GLUCOSE";
-
-if(name.includes("FASTING")) return "GLUCOSE";
-
-if(name.includes("RANDOM")) return "GLUCOSE";
-
-if(name.includes("PP")) return "GLUCOSE";
-
-if(name.includes("ADA FLUID")) return "GLUCOSE";
+if(name.includes("CHOLESTEROL")) return "CHOLESTEROL";
+if(name.includes("TRIGLYCERIDE")) return "TRIGLYCERIDES";
 
 return name;
 
@@ -90,7 +93,9 @@ SCAN LIS PAGE
 ========================= */
 
 let repeatList=[];
-let results={};
+let abnormalCount=0;
+let deselectedPatients=0;
+let totalRows=0;
 
 let rows=document.querySelectorAll("tr");
 
@@ -100,12 +105,10 @@ let cells=row.querySelectorAll("td");
 
 if(cells.length<2) return;
 
+totalRows++;
+
 let parameter=cells[0].innerText.trim().toUpperCase();
-
 parameter=parameter.replace(/\(.*?\)/g,"").trim();
-
-/* normalize parameter */
-
 parameter=normalizeParameter(parameter);
 
 let value=getNumber(cells[1].innerText);
@@ -113,12 +116,6 @@ let value=getNumber(cells[1].innerText);
 if(!REF_RANGES[parameter]) return;
 
 let ref=REF_RANGES[parameter];
-
-results[parameter]=value;
-
-/* =========================
-COLOR LOGIC
-========================= */
 
 let abnormal=false;
 
@@ -160,16 +157,17 @@ abnormal=true;
 }
 
 /* =========================
-ADD TO REPEAT LIST
+HANDLE ABNORMAL
 ========================= */
 
 if(abnormal){
 
-repeatList.push(parameter+" : "+value+" (Ref "+ref.low+"-"+ref.high+")");
-
-/* FIND CR ROW */
+abnormalCount++;
 
 let node=row;
+let cr="";
+
+/* FIND CR NUMBER */
 
 while(node && !/\d{15}/.test(node.innerText)){
 node=node.previousElementSibling || node.parentElement;
@@ -177,13 +175,26 @@ node=node.previousElementSibling || node.parentElement;
 
 if(node){
 
+let match=node.innerText.match(/\d{15}/);
+
+if(match) cr=match[0];
+
 let checkbox=node.querySelector("input[type='checkbox']");
 
 if(checkbox && checkbox.checked){
 checkbox.click();
+deselectedPatients++;
 }
 
 }
+
+/* STORE PATIENT-WISE REPEAT */
+
+repeatList.push({
+cr:cr,
+parameter:parameter,
+value:value
+});
 
 }
 
@@ -196,7 +207,13 @@ REPEAT PANEL
 createRepeatPanel(repeatList);
 
 /* =========================
-REPEAT PANEL
+VALIDATION ASSISTANT
+========================= */
+
+createValidationAssistant(totalRows,abnormalCount,deselectedPatients);
+
+/* =========================
+REPEAT PANEL FUNCTION
 ========================= */
 
 function createRepeatPanel(list){
@@ -206,7 +223,7 @@ let panel=document.createElement("div");
 panel.style.position="fixed";
 panel.style.right="20px";
 panel.style.top="120px";
-panel.style.width="380px";
+panel.style.width="420px";
 panel.style.background="white";
 panel.style.border="2px solid black";
 panel.style.zIndex="9999";
@@ -247,25 +264,27 @@ body.style.padding="8px";
 body.style.maxHeight="350px";
 body.style.overflow="auto";
 
-panel.appendChild(body);
+let table="<table border='1' width='100%' style='border-collapse:collapse'>";
 
-if(list.length===0){
-
-body.innerHTML="No abnormal parameters";
-
-}else{
+table+="<tr><th>CR No</th><th>Parameter</th><th>Value</th></tr>";
 
 list.forEach(r=>{
-let row=document.createElement("div");
-row.innerText=r;
-body.appendChild(row);
+table+=`<tr>
+<td>${r.cr}</td>
+<td>${r.parameter}</td>
+<td>${r.value}</td>
+</tr>`;
 });
 
-}
+table+="</table>";
+
+body.innerHTML=table;
+
+panel.appendChild(body);
 
 document.body.appendChild(panel);
 
-/* BUTTON FUNCTIONS */
+/* PANEL BUTTONS */
 
 document.getElementById("minBtn").onclick=()=>body.style.display="none";
 document.getElementById("maxBtn").onclick=()=>body.style.display="block";
@@ -276,14 +295,58 @@ document.getElementById("printBtn").onclick=function(){
 let w=window.open("","","width=600,height=600");
 
 w.document.write("<h3>Repeat Parameters</h3>");
-
-list.forEach(r=>{
-w.document.write("<p>"+r+"</p>");
-});
+w.document.write(body.innerHTML);
 
 w.print();
 
 };
+
+}
+
+/* =========================
+VALIDATION DASHBOARD
+========================= */
+
+function createValidationAssistant(totalRows,abnormalCount,deselectedPatients){
+
+let panel=document.createElement("div");
+
+panel.style.position="fixed";
+panel.style.bottom="20px";
+panel.style.right="20px";
+panel.style.width="260px";
+panel.style.background="white";
+panel.style.border="2px solid #1e3a5f";
+panel.style.zIndex="9999";
+panel.style.fontFamily="Arial";
+
+/* HEADER */
+
+let header=document.createElement("div");
+
+header.style.background="#1e3a5f";
+header.style.color="white";
+header.style.padding="6px";
+header.innerText="Validation Assistant";
+
+panel.appendChild(header);
+
+/* BODY */
+
+let body=document.createElement("div");
+
+body.style.padding="8px";
+
+body.innerHTML=`
+<b>Rows Scanned:</b> ${totalRows}<br>
+<b>Abnormal Results:</b> ${abnormalCount}<br>
+<b>Patients Deselected:</b> ${deselectedPatients}<br>
+<b>Repeat Tests:</b> ${repeatList.length}
+`;
+
+panel.appendChild(body);
+
+document.body.appendChild(panel);
 
 }
 
