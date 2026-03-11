@@ -38,9 +38,10 @@ const REF_RANGES = {
 "GGT":{low:9,high:48},
 "LDH":{low:140,high:280},
 
-"RANDOM GLUCOSE":{low:60,high:100},
+"RANDOM BLOOD SUGAR":{low:60,high:400},
+"RANDOM GLUCOSE ":{low:60,high:400},
 "GLUCOSE PP":{low:60,high:400},
-"GLUCOSE FASTING":{low:70,high:400},
+"FASTING BLOOD SUGAR":{low:70,high:400},
 "HBA1C":{low:4.0,high:6},
 
 "TSH":{low:0.4,high:4.0},
