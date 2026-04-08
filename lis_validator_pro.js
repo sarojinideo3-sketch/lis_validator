@@ -1,360 +1,246 @@
+function onEdit(e) {
+  const sh = e.range.getSheet();
+  if (sh.getName() !== "Results") return;
 
+  const row = e.range.getRow();
+  if (row === 1) return;
 
-(function(){
-
-console.log("LIS Validator Pro Running");
-
-/* =========================
-REFERENCE RANGE LIBRARY
-========================= */
-
-const REF_RANGES={
-
-"SODIUM":{low:135,high:145},
-"POTASSIUM":{low:3.5,high:5.1},
-"CHLORIDE":{low:98,high:107},
-"UREA":{low:15,high:40},
-"CREATININE":{low:0.6,high:1.3},
-"URIC ACID":{low:3.4,high:7},
-
-"CALCIUM":{low:8.6,high:10.2},
-"TOTAL CALCIUM":{low:8.6,high:10.2},
-"PHOSPHATE":{low:2.5,high:4.5},
-"MAGNESIUM":{low:1.7,high:2.2},
-
-"TOTAL PROTEIN":{low:6.4,high:8.3},
-"ALBUMIN":{low:3.5,high:5},
-
-"TOTAL BILIRUBIN":{low:0.3,high:1.2},
-"DIRECT BILIRUBIN":{low:0.1,high:0.3},
-"INDIRECT BILIRUBIN":{low:0.2,high:0.9},
-
-"AST":{low:10,high:40},
-"ALT":{low:7,high:56},
-"ALP":{low:44,high:147},
-"GGT":{low:9,high:48},
-"LDH":{low:140,high:280},
-
-"GLUCOSE":{low:70,high:100},
-
-"CHOLESTEROL":{low:125,high:200},
-"TRIGLYCERIDES":{low:0,high:150},
-"HDL":{low:40,high:80},
-"LDL":{low:0,high:130},
-"VLDL":{low:5,high:40},
-
-"TSH":{low:0.4,high:4},
-"T3":{low:80,high:200},
-"T4":{low:5,high:12},
-"FREE T3":{low:2,high:4.4},
-"FREE T4":{low:0.8,high:1.8},
-
-"PROLACTIN":{low:4,high:23},
-"PROCALCITONIN":{low:0,high:0.5},
-
-"VITAMIN B12":{low:200,high:900},
-"VITAMIN D":{low:30,high:100},
-
-"FERRITIN":{low:30,high:400}
-
-};
-
-/* =========================
-UTILITY
-========================= */
-
-function getNumber(text){
-let m=text.match(/-?\d+(\.\d+)?/);
-return m?parseFloat(m[0]):null;
+  validateRow_(row);
 }
 
-/* =========================
-PARAMETER NORMALIZATION
-========================= */
+// ================= MAIN =================
+function validateRow_(row) {
+  const ss = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName("Results");
+  const hist = ss.getSheetByName("History");
 
-function normalizeParameter(name){
+  const data = sheet.getRange(row, 1, 1, 12).getValues()[0];
 
-name=name.toUpperCase();
+  const analyte = (data[3] || "").toLowerCase();
+  const value = Number(data[4]);
+  const patientId = data[1];
 
-/* MAGNESIUM SUPPORT */
+  if (analyte.includes("24")) {
+    setDecision_(sheet, row, "HOLD", "24-hour urine not allowed");
+    return;
+  }
 
-if(
-name.includes("MAGNESIUM") ||
-name.startsWith("MG") ||
-name.includes("MG (")
-){
-return "MAGNESIUM";
+  if (isNaN(value)) {
+    setDecision_(sheet, row, "HOLD", "Invalid value");
+    return;
+  }
+
+  const ref = getReferenceRange_(analyte);
+
+  applyColor_(sheet, row, value, ref);
+
+  if (ref && (value < ref.low || value > ref.high)) {
+    setDecision_(sheet, row, "REVIEW", "Outside reference range");
+  } else {
+    setDecision_(sheet, row, "AUTO", "Normal");
+  }
+
+  // 🔴 GROUP LOGIC
+  checkBilirubin_(sheet, row);
+  checkLFT_(sheet, row);
+  checkRenal_(sheet, row);
+  checkElectrolyte_(sheet, row);
+  checkLipidProfile_(sheet, row);
+
+  updateHistory_(hist, patientId, analyte, value);
 }
 
-/* GLUCOSE VARIANTS */
+// ================= REFERENCE =================
+function getReferenceRange_(a) {
+  a = a.toLowerCase();
 
-if(name.includes("FASTING")) return "GLUCOSE";
-if(name.includes("RANDOM")) return "GLUCOSE";
-if(name.includes("PP")) return "GLUCOSE";
-if(name.includes("ADA")) return "GLUCOSE";
-if(name.includes("GLUCOSE")) return "GLUCOSE";
+  const ref = {
 
-/* LIPID PROFILE */
+    // LIPID PROFILE
+    "cholesterol":[125,200],
+    "total cholesterol":[125,200],
+    "triglycerides":[0,150],
+    "hdl":[40,80],
+    "ldl":[0,130],
+    "vldl":[5,40],
 
-if(name.includes("CHOLESTEROL")) return "CHOLESTEROL";
-if(name.includes("TRIGLYCERIDE")) return "TRIGLYCERIDES";
-if(name.includes("HDL")) return "HDL";
-if(name.includes("LDL")) return "LDL";
-if(name.includes("VLDL")) return "VLDL";
+    // GLUCOSE
+    "fasting glucose":[70,99],
+    "fbs":[70,99],
+    "pp glucose":[0,140],
+    "random glucose":[0,200],
+    "glucose":[70,100],
 
-return name;
+    // LFT
+    "tbil":[0.2,1.2],
+    "dbil":[0,0.3],
+    "ibil":[0.2,0.9],
+    "ast":[10,40],
+    "alt":[7,56],
+    "alp":[40,130],
+    "albumin":[3.5,5.2],
+    "total protein":[6.0,8.3],
 
+    // RFT
+    "urea":[15,40],
+    "creatinine":[0.6,1.3],
+
+    // ELECTROLYTES
+    "sodium":[135,145],
+    "potassium":[3.5,5.1],
+    "chloride":[98,107],
+
+    // MINERALS
+    "calcium":[8.6,10.2],
+    "phosphate":[2.5,4.5],
+    "magnesium":[1.7,2.4],
+
+    // THYROID
+    "tsh":[0.4,4.5],
+    "t3":[80,200],
+    "t4":[5,12],
+
+    // OTHERS
+    "probnp":[0,125],
+    "ferritin":[15,150],
+    "vitamin b12":[200,900],
+    "folate":[3,17],
+    "vitamin d":[30,100]
+  };
+
+  for (let key in ref) {
+    if (a.includes(key)) {
+      return {low: ref[key][0], high: ref[key][1]};
+    }
+  }
+
+  return null;
 }
 
-/* =========================
-SCAN LIS PAGE
-========================= */
+// ================= 🎨 COLOR =================
+function applyColor_(sheet, row, value, ref) {
+  const cell = sheet.getRange(row, 5);
 
-let repeatList=[];
-let abnormalCount=0;
-let deselectedPatients=0;
-let totalRows=0;
+  if (value < 0) {
+    cell.setBackground("#8A2BE2");
+    return;
+  }
 
-let rows=document.querySelectorAll("tr");
+  if (!ref) return;
 
-rows.forEach(row=>{
-
-let cells=row.querySelectorAll("td");
-
-if(cells.length<2) return;
-
-totalRows++;
-
-let parameter=cells[0].innerText.trim().toUpperCase();
-parameter=parameter.replace(/\(.*?\)/g,"").trim();
-parameter=normalizeParameter(parameter);
-
-let value=getNumber(cells[1].innerText);
-
-if(!REF_RANGES[parameter]) return;
-
-let ref=REF_RANGES[parameter];
-
-let abnormal=false;
-
-/* NEGATIVE */
-
-if(value<0){
-row.style.background="#8a2be2";
-row.style.color="white";
-abnormal=true;
+  if (value > ref.high * 1.5) {
+    cell.setBackground("#FF69B4");
+  } else if (value > ref.high) {
+    cell.setBackground("#FFFF66");
+  } else {
+    cell.setBackground(null);
+  }
 }
 
-/* LOW */
+// ================= 🔴 BILIRUBIN =================
+function checkBilirubin_(sheet, row) {
+  const g = getGroup_(sheet, row);
 
-else if(value<ref.low){
-row.style.background="#d8b4fe";
-abnormal=true;
+  let t = g["tbil"];
+  let d = g["dbil"];
+  let i = g["ibil"];
+
+  if (t == null || d == null) return;
+
+  if ((t < 0) || (d < 0) || (i != null && i < 0) || d > t || (i != null && i > t)) {
+    applyGroup_(sheet, g.rows, "HOLD", "Invalid bilirubin");
+  }
 }
 
-/* SLIGHTLY HIGH */
+// ================= 🔬 LFT =================
+function checkLFT_(sheet, row) {
+  const g = getGroup_(sheet, row);
 
-else if(value>ref.high && value<=ref.high*1.2){
-row.style.background="#fff176";
-abnormal=true;
+  if (g.ast && g.alt && g.ast/g.alt > 2) {
+    applyGroup_(sheet, g.rows, "REVIEW", "AST/ALT >2");
+  }
+
+  if (g.albumin && g["total protein"] && g.albumin > g["total protein"]) {
+    applyGroup_(sheet, g.rows, "HOLD", "Albumin > TP");
+  }
 }
 
-/* VERY HIGH */
+// ================= ⚡ RFT =================
+function checkRenal_(sheet, row) {
+  const g = getGroup_(sheet, row);
 
-else if(value>ref.high*1.2){
-row.style.background="#ff8fab";
-abnormal=true;
+  if (g.urea && g.creatinine && g.urea > 100 && g.creatinine < 1.2) {
+    applyGroup_(sheet, g.rows, "REVIEW", "Urea mismatch");
+  }
 }
 
-/* HANDLE ABNORMAL */
+// ================= 🧂 ELECTROLYTES =================
+function checkElectrolyte_(sheet, row) {
+  const g = getGroup_(sheet, row);
 
-if(abnormal){
-
-abnormalCount++;
-
-let node=row;
-let cr="";
-
-/* FIND CR NUMBER */
-
-while(node && !/\d{15}/.test(node.innerText)){
-node=node.previousElementSibling || node.parentElement;
+  if (g.sodium && (g.sodium < 100 || g.sodium > 170)) {
+    applyGroup_(sheet, g.rows, "HOLD", "Critical sodium");
+  }
 }
 
-if(node){
+// ================= 🧠 LIPID PROFILE =================
+function checkLipidProfile_(sheet, row) {
+  const g = getGroup_(sheet, row);
 
-let match=node.innerText.match(/\d{15}/);
-if(match) cr=match[0];
+  let chol = g["cholesterol"];
+  let tg = g["triglycerides"];
+  let hdl = g["hdl"];
+  let ldl = g["ldl"];
 
-let checkbox=node.querySelector("input[type='checkbox']");
+  if (chol != null && chol > 300) {
+    applyGroup_(sheet, g.rows, "HOLD", "Very high cholesterol");
+  }
 
-if(checkbox && checkbox.checked){
-checkbox.click();
-deselectedPatients++;
+  if (tg != null && tg > 400) {
+    applyGroup_(sheet, g.rows, "REVIEW", "TG high - LDL unreliable");
+  }
+
+  if (ldl != null && ldl > 190) {
+    applyGroup_(sheet, g.rows, "HOLD", "LDL very high");
+  }
+
+  if (hdl != null && hdl < 40) {
+    applyGroup_(sheet, g.rows, "REVIEW", "Low HDL");
+  }
 }
 
+// ================= GROUP =================
+function getGroup_(sheet, row) {
+  const data = sheet.getDataRange().getValues();
+  const current = data[row-1];
+
+  let g = {};
+  g.rows = [];
+
+  for (let i=1;i<data.length;i++) {
+    if (data[i][0]==current[0] && data[i][1]==current[1]) {
+      const name = (data[i][3] || "").toLowerCase();
+      g[name] = Number(data[i][4]);
+      g.rows.push(i+1);
+    }
+  }
+  return g;
 }
 
-/* STORE REPEAT */
-
-repeatList.push({
-cr:cr,
-parameter:parameter,
-value:value
-});
-
+function applyGroup_(sheet, rows, status, reason) {
+  rows.forEach(r=>{
+    sheet.getRange(r,9).setValue(status);
+    sheet.getRange(r,10).setValue(reason);
+  });
 }
 
-});
-
-/* =========================
-REPEAT PANEL
-========================= */
-
-createRepeatPanel(repeatList);
-
-/* =========================
-VALIDATION DASHBOARD
-========================= */
-
-createValidationAssistant(totalRows,abnormalCount,deselectedPatients);
-
-/* =========================
-REPEAT PANEL
-========================= */
-
-function createRepeatPanel(list){
-
-let panel=document.createElement("div");
-
-panel.style.position="fixed";
-panel.style.right="20px";
-panel.style.top="120px";
-panel.style.width="420px";
-panel.style.background="white";
-panel.style.border="2px solid black";
-panel.style.zIndex="9999";
-panel.style.fontFamily="Arial";
-
-/* HEADER */
-
-let header=document.createElement("div");
-
-header.style.background="#1e3a5f";
-header.style.color="white";
-header.style.padding="6px";
-header.style.display="flex";
-header.style.justifyContent="space-between";
-
-header.innerHTML="<b>Repeat Parameters</b>";
-
-panel.appendChild(header);
-
-/* BUTTONS */
-
-let buttons=document.createElement("div");
-
-buttons.innerHTML=`
-<button id="minBtn">–</button>
-<button id="maxBtn">□</button>
-<button id="printBtn">🖨</button>
-<button id="closeBtn">✖</button>
-`;
-
-header.appendChild(buttons);
-
-/* BODY */
-
-let body=document.createElement("div");
-
-body.style.padding="8px";
-body.style.maxHeight="350px";
-body.style.overflow="auto";
-
-let table="<table border='1' width='100%' style='border-collapse:collapse'>";
-
-table+="<tr><th>CR No</th><th>Parameter</th><th>Value</th></tr>";
-
-list.forEach(r=>{
-table+=`<tr>
-<td>${r.cr}</td>
-<td>${r.parameter}</td>
-<td>${r.value}</td>
-</tr>`;
-});
-
-table+="</table>";
-
-body.innerHTML=table;
-
-panel.appendChild(body);
-
-document.body.appendChild(panel);
-
-/* PANEL BUTTONS */
-
-document.getElementById("minBtn").onclick=()=>body.style.display="none";
-document.getElementById("maxBtn").onclick=()=>body.style.display="block";
-document.getElementById("closeBtn").onclick=()=>panel.remove();
-
-document.getElementById("printBtn").onclick=function(){
-
-let w=window.open("","","width=600,height=600");
-
-w.document.write("<h3>Repeat Parameters</h3>");
-w.document.write(body.innerHTML);
-
-w.print();
-
-};
-
+// ================= HISTORY =================
+function updateHistory_(hist, pid, analyte, value) {
+  hist.appendRow([pid, analyte, value, new Date()]);
 }
 
-/* =========================
-VALIDATION DASHBOARD
-========================= */
-
-function createValidationAssistant(totalRows,abnormalCount,deselectedPatients){
-
-let panel=document.createElement("div");
-
-panel.style.position="fixed";
-panel.style.bottom="20px";
-panel.style.right="20px";
-panel.style.width="260px";
-panel.style.background="white";
-panel.style.border="2px solid #1e3a5f";
-panel.style.zIndex="9999";
-panel.style.fontFamily="Arial";
-
-/* HEADER */
-
-let header=document.createElement("div");
-
-header.style.background="#1e3a5f";
-header.style.color="white";
-header.style.padding="6px";
-header.innerText="Validation Assistant";
-
-panel.appendChild(header);
-
-/* BODY */
-
-let body=document.createElement("div");
-
-body.style.padding="8px";
-
-body.innerHTML=`
-<b>Rows Scanned:</b> ${totalRows}<br>
-<b>Abnormal Results:</b> ${abnormalCount}<br>
-<b>Patients Deselected:</b> ${deselectedPatients}<br>
-<b>Repeat Tests:</b> ${repeatList.length}
-`;
-
-panel.appendChild(body);
-
-document.body.appendChild(panel);
-
+// ================= OUTPUT =================
+function setDecision_(sheet, row, status, reason) {
+  sheet.getRange(row,9).setValue(status);
+  sheet.getRange(row,10).setValue(reason);
 }
-
-})();
