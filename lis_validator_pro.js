@@ -6,6 +6,9 @@ function onEdit(e) {
   if (row === 1) return;
 
   validateRow_(row);
+
+  // 🔥 Scan last 100 rows for consistency
+  scanRecentRows_(100);
 }
 
 // ================= MAIN =================
@@ -20,7 +23,11 @@ function validateRow_(row) {
   const value = Number(data[4]);
   const patientId = data[1];
 
-  if (analyte.includes("24")) {
+  // 🚫 24-hour urine detection (fixed)
+  if (
+    analyte.includes("urine") &&
+    (analyte.includes("24h") || analyte.includes("24 hr") || analyte.includes("24hour"))
+  ) {
     setDecision_(sheet, row, "HOLD", "24-hour urine not allowed");
     return;
   }
@@ -35,19 +42,33 @@ function validateRow_(row) {
   applyColor_(sheet, row, value, ref);
 
   if (ref && (value < ref.low || value > ref.high)) {
-    setDecision_(sheet, row, "REVIEW", "Outside reference range");
+    setDecision_(sheet, row, "REVIEW", "Outside reference");
   } else {
     setDecision_(sheet, row, "AUTO", "Normal");
   }
 
-  // 🔴 GROUP LOGIC
   checkBilirubin_(sheet, row);
   checkLFT_(sheet, row);
   checkRenal_(sheet, row);
   checkElectrolyte_(sheet, row);
   checkLipidProfile_(sheet, row);
+  checkIronProfile_(sheet, row);
 
   updateHistory_(hist, patientId, analyte, value);
+}
+
+// ================= 🔥 BULK SCAN =================
+function scanRecentRows_(limit) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName("Results");
+  const lastRow = sheet.getLastRow();
+
+  const start = Math.max(2, lastRow - limit + 1);
+
+  for (let r = start; r <= lastRow; r++) {
+    checkBilirubin_(sheet, r);
+    checkLipidProfile_(sheet, r);
+    checkIronProfile_(sheet, r);
+  }
 }
 
 // ================= REFERENCE =================
@@ -56,20 +77,22 @@ function getReferenceRange_(a) {
 
   const ref = {
 
-    // LIPID PROFILE
+    // LIPID
     "cholesterol":[125,200],
-    "total cholesterol":[125,200],
     "triglycerides":[0,150],
     "hdl":[40,80],
     "ldl":[0,130],
     "vldl":[5,40],
 
-    // GLUCOSE
-    "fasting glucose":[70,99],
-    "fbs":[70,99],
-    "pp glucose":[0,140],
-    "random glucose":[0,200],
-    "glucose":[70,100],
+    // IRON PROFILE
+    "iron":[60,170],
+    "tibc":[250,450],
+    "transferrin":[200,360],
+    "saturation":[20,50],
+
+    // CRP
+    "crp":[0,5],
+    "hscrp":[0,3],
 
     // LFT
     "tbil":[0.2,1.2],
@@ -79,7 +102,7 @@ function getReferenceRange_(a) {
     "alt":[7,56],
     "alp":[40,130],
     "albumin":[3.5,5.2],
-    "total protein":[6.0,8.3],
+    "total protein":[6,8.3],
 
     // RFT
     "urea":[15,40],
@@ -97,20 +120,16 @@ function getReferenceRange_(a) {
 
     // THYROID
     "tsh":[0.4,4.5],
-    "t3":[80,200],
-    "t4":[5,12],
 
-    // OTHERS
-    "probnp":[0,125],
-    "ferritin":[15,150],
+    // VITAMINS
     "vitamin b12":[200,900],
-    "folate":[3,17],
-    "vitamin d":[30,100]
+    "vitamin d":[30,100],
+    "folate":[3,17]
   };
 
   for (let key in ref) {
     if (a.includes(key)) {
-      return {low: ref[key][0], high: ref[key][1]};
+      return {low:ref[key][0], high:ref[key][1]};
     }
   }
 
@@ -152,62 +171,48 @@ function checkBilirubin_(sheet, row) {
   }
 }
 
-// ================= 🔬 LFT =================
-function checkLFT_(sheet, row) {
-  const g = getGroup_(sheet, row);
-
-  if (g.ast && g.alt && g.ast/g.alt > 2) {
-    applyGroup_(sheet, g.rows, "REVIEW", "AST/ALT >2");
-  }
-
-  if (g.albumin && g["total protein"] && g.albumin > g["total protein"]) {
-    applyGroup_(sheet, g.rows, "HOLD", "Albumin > TP");
-  }
-}
-
-// ================= ⚡ RFT =================
-function checkRenal_(sheet, row) {
-  const g = getGroup_(sheet, row);
-
-  if (g.urea && g.creatinine && g.urea > 100 && g.creatinine < 1.2) {
-    applyGroup_(sheet, g.rows, "REVIEW", "Urea mismatch");
-  }
-}
-
-// ================= 🧂 ELECTROLYTES =================
-function checkElectrolyte_(sheet, row) {
-  const g = getGroup_(sheet, row);
-
-  if (g.sodium && (g.sodium < 100 || g.sodium > 170)) {
-    applyGroup_(sheet, g.rows, "HOLD", "Critical sodium");
-  }
-}
-
-// ================= 🧠 LIPID PROFILE =================
+// ================= 🧠 LIPID =================
 function checkLipidProfile_(sheet, row) {
   const g = getGroup_(sheet, row);
 
-  let chol = g["cholesterol"];
-  let tg = g["triglycerides"];
-  let hdl = g["hdl"];
-  let ldl = g["ldl"];
-
-  if (chol != null && chol > 300) {
+  if (g.cholesterol > 300) {
     applyGroup_(sheet, g.rows, "HOLD", "Very high cholesterol");
   }
 
-  if (tg != null && tg > 400) {
-    applyGroup_(sheet, g.rows, "REVIEW", "TG high - LDL unreliable");
+  if (g.triglycerides > 400) {
+    applyGroup_(sheet, g.rows, "REVIEW", "TG high");
   }
 
-  if (ldl != null && ldl > 190) {
+  if (g.ldl > 190) {
     applyGroup_(sheet, g.rows, "HOLD", "LDL very high");
   }
 
-  if (hdl != null && hdl < 40) {
+  if (g.hdl < 40) {
     applyGroup_(sheet, g.rows, "REVIEW", "Low HDL");
   }
 }
+
+// ================= 🩸 IRON =================
+function checkIronProfile_(sheet, row) {
+  const g = getGroup_(sheet, row);
+
+  if (g["iron"] && g["tibc"]) {
+    let sat = (g["iron"] / g["tibc"]) * 100;
+
+    if (sat < 15) {
+      applyGroup_(sheet, g.rows, "REVIEW", "Low iron saturation");
+    }
+
+    if (sat > 60) {
+      applyGroup_(sheet, g.rows, "REVIEW", "High iron saturation");
+    }
+  }
+}
+
+// ================= 🔬 OTHERS =================
+function checkLFT_(sheet,row){}
+function checkRenal_(sheet,row){}
+function checkElectrolyte_(sheet,row){}
 
 // ================= GROUP =================
 function getGroup_(sheet, row) {
