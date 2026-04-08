@@ -12,7 +12,7 @@
 
   const CFG = {
     maxRows: 100,
-    pageDelayMs: 500,
+    pageDelayMs: 450,
     slightTolerance: 0.1
   };
 
@@ -48,7 +48,7 @@
     total_bilirubin: { min: 0.2, max: 1.2 },
     direct_bilirubin: { min: 0.0, max: 0.3 },
     indirect_bilirubin: { min: 0.2, max: 0.9 },
-    urea: { min: 15, max: 40 },
+    urea: { min: 17, max: 43 },
     bun: { min: 7, max: 20 },
     creatinine: { min: 0.6, max: 1.2 },
     uric_acid: { min: 3.5, max: 7.2 },
@@ -58,7 +58,6 @@
     saturation: { min: 20, max: 50 },
     ferritin_male: { min: 30, max: 400 },
     ferritin_female: { min: 13, max: 150 },
-    ferritin_generic: { min: 15, max: 300 },
     hba1c: { min: 4.0, max: 5.6 },
     fasting_glucose: { min: 70, max: 99 },
     ppbs: { min: 0, max: 140 },
@@ -100,8 +99,8 @@
     return (n != null && n >= 999) || /^9{3,}$/.test(t);
   }
 
-  function is24HourUrineLine(t) {
-    return /24\s*(hour|hr|h)\s*urine|24h urine|24 hour urine/.test(norm(t));
+  function is24HourUrine(v) {
+    return /24\s*(hour|hr|h)\s*urine|24h urine|24 hour urine/.test(norm(v));
   }
 
   function genderFromBlock(block) {
@@ -117,31 +116,23 @@
   }
 
   function findByCheckboxNearCr(block) {
-    const cr = crFromBlock(block);
-    if (!cr) return null;
-
     const candidates = [...block.querySelectorAll('input[type="checkbox"]')];
     if (!candidates.length) return null;
 
-    const withCr = candidates.map(cb => {
+    const withPos = candidates.map(cb => {
       const r = cb.getBoundingClientRect();
-      const box = cb.closest('tr, td, div, li, section');
-      return { cb, box, x: r.left, y: r.top };
-    });
+      return { cb, x: r.left, y: r.top };
+    }).sort((a, b) => a.y - b.y || a.x - b.x);
 
-    withCr.sort((a, b) => a.y - b.y || a.x - b.x);
-    return withCr[0]?.cb || candidates[0];
+    return withPos[0]?.cb || candidates[0] || null;
   }
 
-  function setRowColor(el, color) {
-    return;
-  }
-
-  function clearMarks(root = document) {
-    return;
+  function clearMarks() {
+    // Intentionally no page-wide color reset, to avoid touching the site styling.
   }
 
   function mark(el, color) {
+    // Intentionally disabled. The tool should only deselect abnormal rows.
     return;
   }
 
@@ -214,19 +205,10 @@
     const t = norm(valueText);
     const n = num(t);
 
-    // NEGATIVE
-    if (isNegativeLike(t)) return { abnormal: true, status: 'negative', reason: 'negative' };
-
-    // 999 / 99999
-    if (isPlaceholder999(t)) return { abnormal: true, status: 'high', reason: '999' };
-
-    // DOUBLE / TRIPLE DIGIT RULE (APPLY ONLY TO SPECIFIC TESTS)
-    if (n !== null && Math.abs(n) >= 10 && !['sodium','potassium','creatinine','urea','calcium','magnesium','phosphate'].includes(key)) {
-      return { abnormal: true, status: 'high', reason: 'double/triple digit' };
-    };
+    if (is24HourUrine(t)) {
+      return { abnormal: true, status: 'high', reason: '24 hour urine' };
     }
 
-    // URINE MICROALBUMIN SPECIAL RULE
     if (key === 'microalbumin') {
       if (isNegativeLike(t) || isPlaceholder999(t)) {
         return { abnormal: true, status: 'high', reason: 'microalbumin invalid' };
@@ -234,116 +216,114 @@
       return { abnormal: false, status: 'normal', reason: '' };
     }
 
+    if (isNegativeLike(t)) return { abnormal: true, status: 'negative', reason: 'negative' };
+    if (isPlaceholder999(t)) return { abnormal: true, status: 'high', reason: '999' };
+
     const range = rangeFor(key, gender);
     if (!range || n == null) return { abnormal: false, status: 'unknown', reason: '' };
 
     if (n >= range.min && n <= range.max) return { abnormal: false, status: 'normal', reason: '' };
 
-    return { abnormal: true, status: n > range.max ? 'high' : 'low', reason: 'range' };
+    const edge = n < range.min ? range.min : range.max;
+    const diff = Math.abs(n - edge);
+    const span = Math.max(Math.abs(range.max - range.min), 1);
+    const status = (diff / span <= CFG.slightTolerance) ? 'slight' : (n > range.max ? 'high' : 'low');
+    return { abnormal: true, status, reason: status };
   }
 
-  function findMainBlocks() {
-    const all = [...document.querySelectorAll('tr, div, td, li, section')];
-    return all.filter(el => {
-      const t = text(el);
-      return /\b\d{15}\b/.test(t) && el.querySelector('input[type="checkbox"]');
-    });
+  function getAllRows() {
+    return [...document.querySelectorAll('tr')].filter(tr => tr.offsetParent !== null);
   }
 
-  function findParamRows(block) {
-    const rows = [...block.querySelectorAll('tr')];
-    if (rows.length) {
-      return rows.filter(r => /test param name|reference range|hba1c|bilirubin|creatinine|sodium|potassium|calcium|magnesium|phosphate|microalbumin|vitamin|ferritin|ppbs|rbs|fbs/i.test(text(r)));
+  function isMainRow(tr) {
+    const t = text(tr);
+    return /\b\d{15}\b/.test(t) && tr.querySelector('input[type="checkbox"]');
+  }
+
+  function extractParamRowsFromBlock(mainRow, rows) {
+    const start = rows.indexOf(mainRow);
+    if (start < 0) return [];
+
+    const out = [];
+    for (let i = start + 1; i < rows.length; i++) {
+      const row = rows[i];
+      const t = text(row);
+      if (isMainRow(row)) break;
+      if (/result entry date|sample\/accession no|validation status|to be validated/i.test(t)) continue;
+      if (/test param name/i.test(t) && /reference range/i.test(t)) continue;
+      if (row.querySelector('input[type="checkbox"]') && row.querySelectorAll('td,th').length >= 2) out.push(row);
     }
-
-    const blocks = [...block.querySelectorAll('div, td, li, section')];
-    return blocks.filter(el => {
-      const t = text(el);
-      return /\b(negative|--|\d+(?:\.\d+)?)/.test(t) && !/\b\d{15}\b/.test(t);
-    });
+    return out;
   }
 
-  function highlightItem(itemEl, status) {
-    return;
+  function getCells(row) {
+    return [...row.querySelectorAll('td, th')];
   }
 
-  function applyBilirubinRule(rows, gender) {
+  function rowNameValue(row) {
+    const cells = getCells(row);
+    const name = (cells[0]?.innerText || '').trim();
+    const value = (cells[1]?.innerText || '').trim();
+    const ref = (cells[2]?.innerText || '').trim();
+    return { name, value, ref };
+  }
+
+  function applyBilirubinRule(paramRows) {
     let tbil = null, dbil = null, ibil = null;
-    let tRow = null, dRow = null, iRow = null;
+    const refs = { tbil: null, dbil: null, ibil: null };
 
-    for (const row of rows) {
-      const key = normalizeTestName(text(row));
-      const cells = [...row.querySelectorAll('td, th')];
-      const valueText = (cells[1]?.innerText || '').trim();
-      const value = num(valueText);
-
-      if (key === 'total_bilirubin') { tbil = value; tRow = row; }
-      if (key === 'direct_bilirubin') { dbil = value; dRow = row; }
-      if (key === 'indirect_bilirubin') { ibil = value; iRow = row; }
+    for (const row of paramRows) {
+      const { name, value } = rowNameValue(row);
+      const key = normalizeTestName(name);
+      if (key === 'total_bilirubin') { tbil = num(value); refs.tbil = row; }
+      if (key === 'direct_bilirubin') { dbil = num(value); refs.dbil = row; }
+      if (key === 'indirect_bilirubin') { ibil = num(value); refs.ibil = row; }
     }
 
     if (tbil == null || dbil == null || ibil == null) return [];
 
-    // YOUR RULE: TBIL < DBIL or IBIL
-    if (tbil < dbil || tbil < ibil) {
-      return [tRow, dRow, iRow].filter(Boolean).map(r => ({ row: r, status: 'high', reason: 'bilirubin mismatch' }));
+    if (tbil < dbil || tbil < ibil || (dbil + ibil) > tbil) {
+      return [refs.tbil, refs.dbil, refs.ibil].filter(Boolean);
     }
 
     return [];
   }
 
-  function inspectBlock(block) {
-    const gender = genderFromBlock(block);
-    const blockCheckbox = findByCheckboxNearCr(block);
-    const rows = findParamRows(block);
-    const issues = [];
+  function deselectCheckboxInRow(row) {
+    const cb = row?.querySelector('input[type="checkbox"]');
+    if (cb) clickCheckbox(cb, false);
+  }
 
-    for (const row of rows) {
-      const t = text(row);
-      const key = normalizeTestName(t);
+  function inspectMainBlock(mainRow, rows) {
+    const gender = genderFromBlock(mainRow);
+    const mainCb = findByCheckboxNearCr(mainRow);
+    const paramRows = extractParamRowsFromBlock(mainRow, rows);
+
+    const abnormalRows = new Set();
+
+    for (const row of paramRows) {
+      const { name, value, ref } = rowNameValue(row);
+      const key = normalizeTestName(name);
       if (!key) continue;
 
-      const cells = [...row.querySelectorAll('td, th')];
-      const valueText = (cells[1]?.innerText || '').trim() || t;
-      const refText = (cells[2]?.innerText || '').trim();
-      const combined = `${t} ${valueText} ${refText}`;
-
+      const combined = `${name} ${value} ${ref}`;
       const v = verdict(combined, key, gender);
-      if (v.abnormal) {
-        issues.push({ row, status: v.status, reason: v.reason, key, valueText });
-      }
+      if (v.abnormal) abnormalRows.add(row);
     }
 
-    issues.push(...applyBilirubinRule(rows, gender));
+    // Bilirubin cross-check
+    for (const row of applyBilirubinRule(paramRows)) abnormalRows.add(row);
 
-    if (issues.length) {
-      if (blockCheckbox) clickCheckbox(blockCheckbox, false);
+    if (abnormalRows.size) {
+      if (mainCb) clickCheckbox(mainCb, false);
 
-      let hasNeg = false;
-      let hasHigh = false;
-      let hasSlight = false;
-
-      for (const issue of issues) {
-        if (issue.status === 'negative') hasNeg = true;
-        if (issue.status === 'high' || issue.status === 'low') hasHigh = true;
-        if (issue.status === 'slight') hasSlight = true;
-
-        highlightItem(issue.row, issue.status);
-
-        const rowCheckbox = issue.row?.querySelector('input[type="checkbox"]')
-          || issue.row?.closest('tr, td, div, li, section')?.querySelector('input[type="checkbox"]');
-        if (rowCheckbox) {
-          clickCheckbox(rowCheckbox, false);
-        }
+      for (const row of abnormalRows) {
+        deselectCheckboxInRow(row);
       }
 
-      const blockRow = block.closest('tr') || block;
-      // no page-level highlighting
-
-      STATE.deselected += issues.length;
-      STATE.abnormal += issues.length;
-      const cr = crFromBlock(block);
-      STATE.log.push({ cr, issues: issues.map(i => `${i.key}:${i.reason}`) });
+      STATE.deselected += abnormalRows.size + 1;
+      STATE.abnormal += abnormalRows.size;
+      STATE.log.push({ cr: crFromBlock(mainRow), rows: [...abnormalRows].map(r => text(r)) });
     }
 
     STATE.processed += 1;
@@ -374,15 +354,17 @@
     STATE.stopRequested = false;
     setStatus('Scanning current page...');
 
-    const blocks = findMainBlocks().slice(0, limit);
-    for (const block of blocks) {
+    const rows = getAllRows();
+    const mainRows = rows.filter(isMainRow).slice(0, limit);
+
+    for (const mainRow of mainRows) {
       if (STATE.stopRequested) break;
-      inspectBlock(block);
-      await new Promise(r => setTimeout(r, 20));
+      inspectMainBlock(mainRow, rows);
+      await new Promise(r => setTimeout(r, 25));
     }
 
     STATE.running = false;
-    setStatus(STATE.stopRequested ? 'Stopped' : `Scanned ${blocks.length} block(s)`);
+    setStatus(STATE.stopRequested ? 'Stopped' : `Scanned ${mainRows.length} block(s)`);
   }
 
   async function scan100Rows() {
@@ -396,13 +378,14 @@
     setStatus('Scanning 100 rows...');
 
     while (!STATE.stopRequested && STATE.processed < CFG.maxRows) {
-      const blocks = findMainBlocks();
-      if (!blocks.length) break;
+      const rows = getAllRows();
+      const mainRows = rows.filter(isMainRow);
+      if (!mainRows.length) break;
 
-      for (const block of blocks) {
+      for (const mainRow of mainRows) {
         if (STATE.stopRequested || STATE.processed >= CFG.maxRows) break;
-        inspectBlock(block);
-        await new Promise(r => setTimeout(r, 25));
+        inspectMainBlock(mainRow, rows);
+        await new Promise(r => setTimeout(r, 20));
       }
 
       if (STATE.stopRequested || STATE.processed >= CFG.maxRows) break;
@@ -422,11 +405,11 @@
   }
 
   function resetMarks() {
-    clearMarks(document);
+    clearMarks();
   }
 
   function downloadLog() {
-    const out = STATE.log.map(x => `${x.cr || 'N/A'} | ${x.issues.join(', ')}`).join('\n');
+    const out = STATE.log.map(x => `${x.cr || 'N/A'} | ${x.rows.join(' || ')}`).join('\n');
     const blob = new Blob([out], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -438,50 +421,46 @@
 
   function panel() {
     if (document.getElementById('__av_panel__')) return;
+
     const root = document.createElement('div');
     root.id = '__av_panel__';
-
-    // MINI FLOATING BUTTON STYLE
-    root.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483647;background:#0f172a;color:#fff;border-radius:20px;padding:8px 14px;font-family:Arial,sans-serif;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.2);font-size:13px;';
-
-    root.innerHTML = `⚡ AV`;
-
+    root.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483647;background:#0f172a;color:#fff;border-radius:18px;padding:8px 12px;font-family:Arial,sans-serif;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.2);font-size:13px;';
+    root.textContent = '⚡ AV';
     document.body.appendChild(root);
 
-    // CLICK TO EXPAND PANEL
     root.onclick = () => {
       if (document.getElementById('__av_fullpanel__')) return;
 
       const panel = document.createElement('div');
       panel.id = '__av_fullpanel__';
-      panel.style.cssText = 'position:fixed;right:14px;bottom:60px;width:300px;background:#fff;border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,0.2);font-family:Arial;padding:12px;z-index:2147483647;';
+      panel.style.cssText = 'position:fixed;right:14px;bottom:60px;width:280px;background:#fff;border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,0.2);font-family:Arial;padding:12px;z-index:2147483647;color:#111;';
 
       panel.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
           <b>Auto Validation</b>
           <button id="__av_close__" style="border:none;background:#e11d48;color:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;">X</button>
         </div>
-        <button id="__av_scan100_btn__" style="width:100%;margin-bottom:6px;padding:6px;border:none;border-radius:8px;background:#2563eb;color:#fff;">Scan 100</button>
-        <button id="__av_stop_btn__" style="width:100%;padding:6px;border:none;border-radius:8px;background:#dc2626;color:#fff;">Stop</button>
+        <div id="__av_status__" style="font-size:12px;color:#334155;margin-bottom:10px;">Ready</div>
+        <button id="__av_scan100_btn__" style="width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer;">Scan 100</button>
+        <button id="__av_scanpage_btn__" style="width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:8px;background:#0f766e;color:#fff;cursor:pointer;">Scan Page</button>
+        <button id="__av_stop_btn__" style="width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:8px;background:#dc2626;color:#fff;cursor:pointer;">Stop</button>
+        <button id="__av_reset_btn__" style="width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:8px;background:#6b7280;color:#fff;cursor:pointer;">Reset</button>
+        <button id="__av_log_btn__" style="width:100%;padding:8px;border:none;border-radius:8px;background:#7c3aed;color:#fff;cursor:pointer;">Download Log</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;font-size:12px;">
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Processed</div><div id="__av_processed__" style="font-size:18px;font-weight:700;">0</div></div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Deselected</div><div id="__av_deselected__" style="font-size:18px;font-weight:700;">0</div></div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Abnormal</div><div id="__av_abnormal__" style="font-size:18px;font-weight:700;">0</div></div>
+        </div>
       `;
 
       document.body.appendChild(panel);
-
-      document.getElementById('__av_scan100_btn__').onclick = scan100Rows;
-      document.getElementById('__av_stop_btn__').onclick = stopScan;
-      document.getElementById('__av_close__').onclick = () => panel.remove();
+      panel.querySelector('#__av_close__').onclick = () => panel.remove();
+      panel.querySelector('#__av_scan100_btn__').onclick = scan100Rows;
+      panel.querySelector('#__av_scanpage_btn__').onclick = () => scanCurrentPage(100);
+      panel.querySelector('#__av_stop_btn__').onclick = stopScan;
+      panel.querySelector('#__av_reset_btn__').onclick = resetMarks;
+      panel.querySelector('#__av_log_btn__').onclick = downloadLog;
     };
-  }
-    root.querySelector('#__av_toggle__').onclick = () => {
-      const body = root.querySelector('#__av_body__');
-      body.style.display = body.style.display === 'none' ? 'block' : 'none';
-      root.querySelector('#__av_toggle__').textContent = body.style.display === 'none' ? 'Max' : 'Min';
-    };
-    root.querySelector('#__av_scan100_btn__').onclick = scan100Rows;
-    root.querySelector('#__av_scanpage_btn__').onclick = () => scanCurrentPage(100);
-    root.querySelector('#__av_stop_btn__').onclick = stopScan;
-    root.querySelector('#__av_reset_btn__').onclick = resetMarks;
-    root.querySelector('#__av_log_btn__').onclick = downloadLog;
   }
 
   function init() {
@@ -494,7 +473,7 @@
       destroy() {
         STATE.stopRequested = true;
         document.getElementById('__av_panel__')?.remove();
-        clearMarks(document);
+        document.getElementById('__av_fullpanel__')?.remove();
         delete window.__AUTO_VALIDATION_TOOL__;
       }
     };
