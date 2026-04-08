@@ -134,11 +134,13 @@
     return withCr[0]?.cb || candidates[0];
   }
 
-  function setRowColor(el, color, border = false) {
+  function setRowColor(el, color) {
     if (!el) return;
     el.style.backgroundColor = color;
-    el.style.outline = border ? `2px solid ${COLORS.blueBorder}` : '';
-    el.style.outlineOffset = '0';
+    el.style.outline = '';
+    el.style.outlineOffset = '';
+    el.style.boxShadow = 'none';
+    el.style.borderColor = '';
   }
 
   function clearMarks(root = document) {
@@ -149,10 +151,10 @@
     });
   }
 
-  function mark(el, color, border = false) {
+  function mark(el, color) {
     if (!el) return;
     el.setAttribute('data-av-marked', '1');
-    setRowColor(el, color, border);
+    setRowColor(el, color);
   }
 
   function clickCheckbox(cb, checked) {
@@ -264,9 +266,9 @@
 
   function highlightItem(itemEl, status) {
     const row = itemEl.closest('tr') || itemEl;
-    if (status === 'negative') mark(row, COLORS.violet, true);
-    else if (status === 'high' || status === 'low') mark(row, COLORS.red, true);
-    else if (status === 'slight') mark(row, COLORS.green, false);
+    if (status === 'negative') mark(row, COLORS.violet);
+    else if (status === 'high' || status === 'low') mark(row, COLORS.red);
+    else if (status === 'slight') mark(row, COLORS.green);
   }
 
   function applyBilirubinRule(rows, gender) {
@@ -330,9 +332,9 @@
       });
 
       const blockRow = block.closest('tr') || block;
-      if (hasNeg) mark(blockRow, COLORS.violet, true);
-      else if (hasHigh) mark(blockRow, COLORS.red, true);
-      else if (hasSlight) mark(blockRow, COLORS.green, false);
+      if (hasNeg) mark(blockRow, COLORS.violet);
+      else if (hasHigh) mark(blockRow, COLORS.red);
+      else if (hasSlight) mark(blockRow, COLORS.green);
 
       STATE.deselected += checkbox ? 1 : 0;
       STATE.abnormal += issues.length;
@@ -455,7 +457,7 @@
           <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Abnormal</div><div id="__av_abnormal__" style="font-size:18px;font-weight:700;">0</div></div>
         </div>
         <div style="margin-top:10px;font-size:11px;color:#475569;line-height:1.45;">
-          Violet = negative. Red = high or low. Green = slight abnormal. The script tries to uncheck the checkbox nearest the CR number.
+          Violet = negative. Red = high or low. Green = slight abnormal.
         </div>
       </div>
     `;
