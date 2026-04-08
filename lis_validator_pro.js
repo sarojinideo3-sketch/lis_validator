@@ -189,7 +189,8 @@
       [/\bpro bnp\b|nt pro bnp|nt-pro bnp|bnp\b/, 'pro_bnp'],
       [/\bvitamin d\b|25 oh vitamin d|25-hydroxy vitamin d/, 'vitamin_d'],
       [/\bvitamin b12\b|\bb12\b|cobalamin/, 'vitamin_b12'],
-      [/\bmicroalbumin\b|acr|urine albumin/, 'microalbumin']
+      [/microalbumin|acr|urine albumin/, 'microalbumin'],
+      [new RegExp('24\s*(hr|hrs|hour|hours)\s*urine|24\s*(hr|hrs|hour|hours)\s*urinary\s*protein|24\s*h\s*urine', 'i'), 'urine_24h_protein']
     ];
     for (const [re, key] of rules) if (re.test(t)) return key;
     return '';
@@ -205,7 +206,7 @@
     const t = norm(valueText);
     const n = num(t);
 
-    if (is24HourUrine(t)) {
+    if (key === 'urine_24h_protein' || is24HourUrine(t)) {
       return { abnormal: true, status: 'high', reason: '24 hour urine' };
     }
 
@@ -214,6 +215,13 @@
         return { abnormal: true, status: 'high', reason: 'microalbumin invalid' };
       }
       return { abnormal: false, status: 'normal', reason: '' };
+    }
+
+    if (['sodium', 'potassium', 'creatinine', 'urea', 'calcium', 'magnesium', 'phosphate'].includes(key)) {
+      const range = rangeFor(key, gender);
+      if (!range || n == null) return { abnormal: false, status: 'unknown', reason: '' };
+      if (n >= range.min && n <= range.max) return { abnormal: false, status: 'normal', reason: '' };
+      return { abnormal: true, status: n > range.max ? 'high' : 'low', reason: 'range' };
     }
 
     if (isNegativeLike(t)) return { abnormal: true, status: 'negative', reason: 'negative' };
