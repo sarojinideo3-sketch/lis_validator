@@ -86,7 +86,7 @@ SCAN
 let rows=document.querySelectorAll("tr");
 let abnormal=[];
 
-/* FOR BILIRUBIN */
+/* 🔴 BILIRUBIN TRACKERS (ADDED) */
 let tbil=null,dbil=null,ibil=null;
 let bilirubinRows=[];
 
@@ -104,6 +104,21 @@ let ref=REF[param];
 if(!ref) return;
 
 let isAbnormal=false;
+
+/* 🚫 24-HOUR URINE (ADDED) */
+if(
+  param.includes("URINE") &&
+  (
+    param.includes("24H") ||
+    param.includes("24 H") ||
+    param.includes("24HR") ||
+    param.includes("24 HR") ||
+    param.includes("24HOUR") ||
+    param.includes("24 HOUR")
+  )
+){
+  deselectRow(r);
+}
 
 /* COLOR */
 
@@ -128,14 +143,16 @@ r.style.background="#ff8fab";
 isAbnormal=true;
 }
 
-/* STORE */
-
+/* 🔴 TRACK BILIRUBIN (ADDED) */
 if(param.includes("BILIRUBIN")){
 bilirubinRows.push(r);
+
 if(param==="TOTAL BILIRUBIN") tbil=val;
 if(param==="DIRECT BILIRUBIN") dbil=val;
 if(param==="INDIRECT BILIRUBIN") ibil=val;
 }
+
+/* STORE */
 
 if(isAbnormal){
 abnormal.push({param,val,ref});
@@ -145,12 +162,18 @@ deselectRow(r);
 });
 
 /* =========================
-BILIRUBIN RULE
+🔴 BILIRUBIN LOGIC (ADDED)
 ========================= */
 
 if(tbil!=null && dbil!=null){
 
-if(tbil<0||dbil<0||(ibil!=null&&ibil<0)||dbil>tbil||(ibil!=null&&ibil>tbil)){
+if(
+tbil<0 ||
+dbil<0 ||
+(ibil!=null && ibil<0) ||
+dbil>tbil ||
+(ibil!=null && ibil>tbil)
+){
 bilirubinRows.forEach(r=>deselectRow(r));
 }
 
