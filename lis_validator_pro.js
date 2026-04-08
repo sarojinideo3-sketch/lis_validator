@@ -220,9 +220,10 @@
     // 999 / 99999
     if (isPlaceholder999(t)) return { abnormal: true, status: 'high', reason: '999' };
 
-    // DOUBLE / TRIPLE DIGIT before decimal (>=10)
-    if (n !== null && Math.abs(n) >= 10) {
+    // DOUBLE / TRIPLE DIGIT RULE (APPLY ONLY TO SPECIFIC TESTS)
+    if (n !== null && Math.abs(n) >= 10 && !['sodium','potassium','creatinine','urea','calcium','magnesium','phosphate'].includes(key)) {
       return { abnormal: true, status: 'high', reason: 'double/triple digit' };
+    };
     }
 
     // URINE MICROALBUMIN SPECIAL RULE
