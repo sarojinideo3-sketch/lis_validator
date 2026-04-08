@@ -214,21 +214,31 @@
     const t = norm(valueText);
     const n = num(t);
 
-    if (is24HourUrineLine(t)) return { abnormal: true, status: 'low', reason: '24 hour urine' };
+    // NEGATIVE
     if (isNegativeLike(t)) return { abnormal: true, status: 'negative', reason: 'negative' };
+
+    // 999 / 99999
     if (isPlaceholder999(t)) return { abnormal: true, status: 'high', reason: '999' };
+
+    // DOUBLE / TRIPLE DIGIT before decimal (>=10)
+    if (n !== null && Math.abs(n) >= 10) {
+      return { abnormal: true, status: 'high', reason: 'double/triple digit' };
+    }
+
+    // URINE MICROALBUMIN SPECIAL RULE
+    if (key === 'microalbumin') {
+      if (isNegativeLike(t) || isPlaceholder999(t)) {
+        return { abnormal: true, status: 'high', reason: 'microalbumin invalid' };
+      }
+      return { abnormal: false, status: 'normal', reason: '' };
+    }
 
     const range = rangeFor(key, gender);
     if (!range || n == null) return { abnormal: false, status: 'unknown', reason: '' };
 
     if (n >= range.min && n <= range.max) return { abnormal: false, status: 'normal', reason: '' };
 
-    const edge = n < range.min ? range.min : range.max;
-    const diff = Math.abs(n - edge);
-    const span = Math.max(Math.abs(range.max - range.min), 1);
-
-    if (diff / span <= CFG.slightTolerance) return { abnormal: true, status: 'slight', reason: 'slight abnormal' };
-    return { abnormal: true, status: n > range.max ? 'high' : 'low', reason: n > range.max ? 'high' : 'low' };
+    return { abnormal: true, status: n > range.max ? 'high' : 'low', reason: 'range' };
   }
 
   function findMainBlocks() {
@@ -257,26 +267,28 @@
   }
 
   function applyBilirubinRule(rows, gender) {
-    const seen = { total: null, direct: null, indirect: null };
-    const refs = { total: null, direct: null, indirect: null };
+    let tbil = null, dbil = null, ibil = null;
+    let tRow = null, dRow = null, iRow = null;
 
     for (const row of rows) {
       const key = normalizeTestName(text(row));
-      if (!key) continue;
-      if (key === 'total_bilirubin' || key === 'direct_bilirubin' || key === 'indirect_bilirubin') {
-        const cells = [...row.querySelectorAll('td, th')];
-        const valText = (cells[1]?.innerText || row.innerText || '').trim();
-        const value = num(valText);
-        if (key === 'total_bilirubin') { seen.total = value; refs.total = { row, valText }; }
-        if (key === 'direct_bilirubin') { seen.direct = value; refs.direct = { row, valText }; }
-        if (key === 'indirect_bilirubin') { seen.indirect = value; refs.indirect = { row, valText }; }
-      }
+      const cells = [...row.querySelectorAll('td, th')];
+      const valueText = (cells[1]?.innerText || '').trim();
+      const value = num(valueText);
+
+      if (key === 'total_bilirubin') { tbil = value; tRow = row; }
+      if (key === 'direct_bilirubin') { dbil = value; dRow = row; }
+      if (key === 'indirect_bilirubin') { ibil = value; iRow = row; }
     }
 
-    if (seen.total == null || seen.direct == null || seen.indirect == null) return [];
-    const bad = (seen.direct > seen.total) || (seen.indirect > seen.total) || ((seen.direct + seen.indirect) > (seen.total * 1.2));
-    if (!bad) return [];
-    return [refs.total, refs.direct, refs.indirect].filter(Boolean).map(x => ({ row: x.row, status: 'high', reason: 'bilirubin mismatch' }));
+    if (tbil == null || dbil == null || ibil == null) return [];
+
+    // YOUR RULE: TBIL < DBIL or IBIL
+    if (tbil < dbil || tbil < ibil) {
+      return [tRow, dRow, iRow].filter(Boolean).map(r => ({ row: r, status: 'high', reason: 'bilirubin mismatch' }));
+    }
+
+    return [];
   }
 
   function inspectBlock(block) {
@@ -427,32 +439,38 @@
     if (document.getElementById('__av_panel__')) return;
     const root = document.createElement('div');
     root.id = '__av_panel__';
-    root.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483647;width:330px;background:#fff;border:1px solid #cbd5e1;border-radius:14px;box-shadow:0 12px 30px rgba(15,23,42,.18);font-family:Arial,sans-serif;overflow:hidden;';
-    root.innerHTML = `
-      <div style="background:#0f172a;color:#fff;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-        <div style="font-size:14px;font-weight:700;">Auto Validation Tool</div>
-        <button id="__av_toggle__" style="border:0;background:#334155;color:#fff;border-radius:8px;padding:4px 8px;cursor:pointer;">Min</button>
-      </div>
-      <div id="__av_body__" style="padding:12px;">
-        <div id="__av_status__" style="font-size:12px;color:#334155;margin-bottom:10px;">Ready</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
-          <button id="__av_scan100_btn__" style="padding:8px;border:0;border-radius:10px;background:#2563eb;color:#fff;cursor:pointer;">Scan 100</button>
-          <button id="__av_scanpage_btn__" style="padding:8px;border:0;border-radius:10px;background:#0f766e;color:#fff;cursor:pointer;">Scan Page</button>
-          <button id="__av_stop_btn__" style="padding:8px;border:0;border-radius:10px;background:#dc2626;color:#fff;cursor:pointer;">Stop</button>
-          <button id="__av_reset_btn__" style="padding:8px;border:0;border-radius:10px;background:#6b7280;color:#fff;cursor:pointer;">Reset</button>
-          <button id="__av_log_btn__" style="grid-column:1 / span 2;padding:8px;border:0;border-radius:10px;background:#7c3aed;color:#fff;cursor:pointer;">Download Log</button>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;">
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Processed</div><div id="__av_processed__" style="font-size:18px;font-weight:700;">0</div></div>
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Deselected</div><div id="__av_deselected__" style="font-size:18px;font-weight:700;">0</div></div>
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Abnormal</div><div id="__av_abnormal__" style="font-size:18px;font-weight:700;">0</div></div>
-        </div>
-        <div style="margin-top:10px;font-size:11px;color:#475569;line-height:1.45;">
-          Violet = negative. Red = high or low. Green = slight abnormal.
-        </div>
-      </div>
-    `;
+
+    // MINI FLOATING BUTTON STYLE
+    root.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483647;background:#0f172a;color:#fff;border-radius:20px;padding:8px 14px;font-family:Arial,sans-serif;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.2);font-size:13px;';
+
+    root.innerHTML = `⚡ AV`;
+
     document.body.appendChild(root);
+
+    // CLICK TO EXPAND PANEL
+    root.onclick = () => {
+      if (document.getElementById('__av_fullpanel__')) return;
+
+      const panel = document.createElement('div');
+      panel.id = '__av_fullpanel__';
+      panel.style.cssText = 'position:fixed;right:14px;bottom:60px;width:300px;background:#fff;border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,0.2);font-family:Arial;padding:12px;z-index:2147483647;';
+
+      panel.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <b>Auto Validation</b>
+          <button id="__av_close__" style="border:none;background:#e11d48;color:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;">X</button>
+        </div>
+        <button id="__av_scan100_btn__" style="width:100%;margin-bottom:6px;padding:6px;border:none;border-radius:8px;background:#2563eb;color:#fff;">Scan 100</button>
+        <button id="__av_stop_btn__" style="width:100%;padding:6px;border:none;border-radius:8px;background:#dc2626;color:#fff;">Stop</button>
+      `;
+
+      document.body.appendChild(panel);
+
+      document.getElementById('__av_scan100_btn__').onclick = scan100Rows;
+      document.getElementById('__av_stop_btn__').onclick = stopScan;
+      document.getElementById('__av_close__').onclick = () => panel.remove();
+    };
+  }
     root.querySelector('#__av_toggle__').onclick = () => {
       const body = root.querySelector('#__av_body__');
       body.style.display = body.style.display === 'none' ? 'block' : 'none';
