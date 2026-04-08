@@ -19,8 +19,7 @@
   const COLORS = {
     violet: '#ead7ff',
     red: '#ffd9d9',
-    green: '#ddf7dd',
-    blueBorder: '#2f80ed'
+    green: '#ddf7dd'
   };
 
   const RANGES = {
@@ -135,26 +134,15 @@
   }
 
   function setRowColor(el, color) {
-    if (!el) return;
-    el.style.backgroundColor = color;
-    el.style.outline = '';
-    el.style.outlineOffset = '';
-    el.style.boxShadow = 'none';
-    el.style.borderColor = '';
+    return;
   }
 
   function clearMarks(root = document) {
-    root.querySelectorAll('[data-av-marked="1"]').forEach(el => {
-      el.style.backgroundColor = '';
-      el.style.outline = '';
-      el.removeAttribute('data-av-marked');
-    });
+    return;
   }
 
   function mark(el, color) {
-    if (!el) return;
-    el.setAttribute('data-av-marked', '1');
-    setRowColor(el, color);
+    return;
   }
 
   function clickCheckbox(cb, checked) {
@@ -265,10 +253,7 @@
   }
 
   function highlightItem(itemEl, status) {
-    const row = itemEl.closest('tr') || itemEl;
-    if (status === 'negative') mark(row, COLORS.violet);
-    else if (status === 'high' || status === 'low') mark(row, COLORS.red);
-    else if (status === 'slight') mark(row, COLORS.green);
+    return;
   }
 
   function applyBilirubinRule(rows, gender) {
@@ -296,7 +281,7 @@
 
   function inspectBlock(block) {
     const gender = genderFromBlock(block);
-    const checkbox = findByCheckboxNearCr(block);
+    const blockCheckbox = findByCheckboxNearCr(block);
     const rows = findParamRows(block);
     const issues = [];
 
@@ -319,24 +304,30 @@
     issues.push(...applyBilirubinRule(rows, gender));
 
     if (issues.length) {
-      if (checkbox) clickCheckbox(checkbox, false);
+      if (blockCheckbox) clickCheckbox(blockCheckbox, false);
 
       let hasNeg = false;
       let hasHigh = false;
       let hasSlight = false;
-      issues.forEach(i => {
-        if (i.status === 'negative') hasNeg = true;
-        if (i.status === 'high' || i.status === 'low') hasHigh = true;
-        if (i.status === 'slight') hasSlight = true;
-        highlightItem(i.row, i.status);
-      });
+
+      for (const issue of issues) {
+        if (issue.status === 'negative') hasNeg = true;
+        if (issue.status === 'high' || issue.status === 'low') hasHigh = true;
+        if (issue.status === 'slight') hasSlight = true;
+
+        highlightItem(issue.row, issue.status);
+
+        const rowCheckbox = issue.row?.querySelector('input[type="checkbox"]')
+          || issue.row?.closest('tr, td, div, li, section')?.querySelector('input[type="checkbox"]');
+        if (rowCheckbox) {
+          clickCheckbox(rowCheckbox, false);
+        }
+      }
 
       const blockRow = block.closest('tr') || block;
-      if (hasNeg) mark(blockRow, COLORS.violet);
-      else if (hasHigh) mark(blockRow, COLORS.red);
-      else if (hasSlight) mark(blockRow, COLORS.green);
+      // no page-level highlighting
 
-      STATE.deselected += checkbox ? 1 : 0;
+      STATE.deselected += issues.length;
       STATE.abnormal += issues.length;
       const cr = crFromBlock(block);
       STATE.log.push({ cr, issues: issues.map(i => `${i.key}:${i.reason}`) });
