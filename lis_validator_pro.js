@@ -1,102 +1,82 @@
 (function(){
 
-console.log("🚀 LIS Validator PRO Running");
+console.log("🚀 LIS Validator PRO + Panel Running");
 
 /* =========================
-REFERENCE RANGES
+REFERENCE
 ========================= */
 
-const REF = {
+const REF={
+"SODIUM":[135,145],
+"POTASSIUM":[3.5,5.1],
+"CHLORIDE":[98,107],
 
-"SODIUM":{low:135,high:145},
-"POTASSIUM":{low:3.5,high:5.1},
-"CHLORIDE":{low:98,high:107},
+"UREA":[15,40],
+"CREATININE":[0.6,1.3],
 
-"UREA":{low:15,high:40},
-"CREATININE":{low:0.6,high:1.3},
+"CALCIUM":[8.6,10.2],
+"PHOSPHATE":[2.5,4.5],
+"MAGNESIUM":[1.7,2.4],
 
-"CALCIUM":{low:8.6,high:10.2},
-"PHOSPHATE":{low:2.5,high:4.5},
-"MAGNESIUM":{low:1.7,high:2.4},
+"TOTAL PROTEIN":[6,8.3],
+"ALBUMIN":[3.5,5.2],
 
-"TOTAL PROTEIN":{low:6,high:8.3},
-"ALBUMIN":{low:3.5,high:5.2},
+"TOTAL BILIRUBIN":[0.2,1.2],
+"DIRECT BILIRUBIN":[0,0.3],
+"INDIRECT BILIRUBIN":[0.2,0.9],
 
-"TOTAL BILIRUBIN":{low:0.2,high:1.2},
-"DIRECT BILIRUBIN":{low:0,high:0.3},
-"INDIRECT BILIRUBIN":{low:0.2,high:0.9},
+"AST":[10,40],
+"ALT":[7,56],
+"ALP":[40,130],
 
-"AST":{low:10,high:40},
-"ALT":{low:7,high:56},
-"ALP":{low:40,high:130},
+"GLUCOSE":[70,100],
 
-"GLUCOSE":{low:70,high:100},
+"CHOLESTEROL":[125,200],
+"TRIGLYCERIDES":[0,150],
+"HDL":[40,80],
+"LDL":[0,130],
 
-// LIPID
-"CHOLESTEROL":{low:125,high:200},
-"TRIGLYCERIDES":{low:0,high:150},
-"HDL":{low:40,high:80},
-"LDL":{low:0,high:130},
-"VLDL":{low:5,high:40},
+"IRON":[60,170],
+"TIBC":[250,450],
 
-// IRON
-"IRON":{low:60,high:170},
-"TIBC":{low:250,high:450},
-"TRANSFERRIN":{low:200,high:360},
-
-// CRP
-"CRP":{low:0,high:5},
-"HSCRP":{low:0,high:3}
-
+"CRP":[0,5],
+"HSCRP":[0,3]
 };
 
 /* =========================
-UTILITIES
+UTILS
 ========================= */
 
-function getNumber(text){
-let m=text.match(/-?\d+(\.\d+)?/);
+function getVal(t){
+let m=t.match(/-?\d+(\.\d+)?/);
 return m?parseFloat(m[0]):null;
 }
 
-function normalize(name){
-name=name.toUpperCase();
+function normalize(n){
+n=n.toUpperCase();
 
-if(name.includes("FASTING")||name.includes("PP")||name.includes("RANDOM")) return "GLUCOSE";
+if(n.includes("BILIRUBIN")){
+if(n.includes("TOTAL")) return "TOTAL BILIRUBIN";
+if(n.includes("DIRECT")) return "DIRECT BILIRUBIN";
+if(n.includes("INDIRECT")) return "INDIRECT BILIRUBIN";
+}
 
-if(name.includes("TOTAL BILIRUBIN")||name==="TBIL") return "TOTAL BILIRUBIN";
-if(name.includes("DIRECT BILIRUBIN")||name==="DBIL") return "DIRECT BILIRUBIN";
-if(name.includes("INDIRECT BILIRUBIN")||name==="IBIL") return "INDIRECT BILIRUBIN";
+if(n.includes("TRIGLYCERIDE")) return "TRIGLYCERIDES";
+if(n.includes("FASTING")||n.includes("PP")||n.includes("RANDOM")) return "GLUCOSE";
 
-if(name.includes("CHOLESTEROL")) return "CHOLESTEROL";
-if(name.includes("TRIGLYCERIDE")) return "TRIGLYCERIDES";
-
-return name;
+return n;
 }
 
 /* =========================
-DESELECT FUNCTION
+DESELECT ONLY ROW
 ========================= */
 
-function deselect(row){
-
-let node=row;
-
-while(node && !node.querySelector("input[type='checkbox']")){
-node=node.parentElement;
-}
-
-if(node){
-let cb=node.querySelector("input[type='checkbox']");
+function deselectRow(row){
+let cb=row.querySelector("input[type='checkbox']");
 if(cb){
-if(cb.checked){
-cb.click();
-}else{
 cb.checked=false;
+cb.dispatchEvent(new Event("change",{bubbles:true}));
 }
-}
-}
-
 }
 
 /* =========================
@@ -104,152 +84,115 @@ SCAN
 ========================= */
 
 let rows=document.querySelectorAll("tr");
+let abnormal=[];
 
-let abnormalList=[];
-let bilirubinGroup=[];
+/* FOR BILIRUBIN */
+let tbil=null,dbil=null,ibil=null;
+let bilirubinRows=[];
 
-rows.forEach(row=>{
+rows.forEach(r=>{
 
-let cells=row.querySelectorAll("td");
-if(cells.length<2) return;
+let td=r.querySelectorAll("td");
+if(td.length<2) return;
 
-let param=normalize(cells[0].innerText.trim());
-let value=getNumber(cells[1].innerText);
+let param=normalize(td[0].innerText.trim());
+let val=getVal(td[1].innerText);
 
-if(value==null) return;
+if(val==null) return;
 
 let ref=REF[param];
-
 if(!ref) return;
 
-let abnormal=false;
+let isAbnormal=false;
 
-/* COLOR LOGIC */
+/* COLOR */
 
-if(value<0){
-row.style.background="#8A2BE2";
-row.style.color="white";
-abnormal=true;
+if(val<0){
+r.style.background="#8A2BE2";
+r.style.color="white";
+isAbnormal=true;
 }
 
-else if(value<ref.low){
-row.style.background="#d8b4fe";
-abnormal=true;
+else if(val<ref[0]){
+r.style.background="#d8b4fe";
+isAbnormal=true;
 }
 
-else if(value>ref.high && value<=ref.high*1.2){
-row.style.background="#fff176";
-abnormal=true;
+else if(val>ref[1] && val<=ref[1]*1.2){
+r.style.background="#fff176";
+isAbnormal=true;
 }
 
-else if(value>ref.high*1.2){
-row.style.background="#ff8fab";
-abnormal=true;
+else if(val>ref[1]*1.2){
+r.style.background="#ff8fab";
+isAbnormal=true;
 }
 
 /* STORE */
 
 if(param.includes("BILIRUBIN")){
-bilirubinGroup.push({row,param,value});
+bilirubinRows.push(r);
+if(param==="TOTAL BILIRUBIN") tbil=val;
+if(param==="DIRECT BILIRUBIN") dbil=val;
+if(param==="INDIRECT BILIRUBIN") ibil=val;
 }
 
-if(abnormal){
-abnormalList.push({row,param,value});
-deselect(row);
+if(isAbnormal){
+abnormal.push({param,val,ref});
+deselectRow(r);
 }
 
 });
 
 /* =========================
-BILIRUBIN LOGIC
+BILIRUBIN RULE
 ========================= */
 
-let t=null,d=null,i=null;
-let bRows=[];
+if(tbil!=null && dbil!=null){
 
-bilirubinGroup.forEach(x=>{
-bRows.push(x.row);
-
-if(x.param==="TOTAL BILIRUBIN") t=x.value;
-if(x.param==="DIRECT BILIRUBIN") d=x.value;
-if(x.param==="INDIRECT BILIRUBIN") i=x.value;
-});
-
-if(t!=null && d!=null){
-
-if(
-t<0 || d<0 || (i!=null && i<0) ||
-d>t || (i!=null && i>t)
-){
-bRows.forEach(r=>deselect(r));
+if(tbil<0||dbil<0||(ibil!=null&&ibil<0)||dbil>tbil||(ibil!=null&&ibil>tbil)){
+bilirubinRows.forEach(r=>deselectRow(r));
 }
 
 }
 
 /* =========================
-LIPID LOGIC
+CREATE PANEL
 ========================= */
 
-let chol=null,tg=null,hdl=null,ldl=null;
+let panel=document.createElement("div");
 
-rows.forEach(row=>{
-let cells=row.querySelectorAll("td");
-if(cells.length<2) return;
+panel.style.position="fixed";
+panel.style.right="20px";
+panel.style.top="120px";
+panel.style.width="350px";
+panel.style.maxHeight="400px";
+panel.style.overflow="auto";
+panel.style.background="white";
+panel.style.border="2px solid black";
+panel.style.zIndex="9999";
+panel.style.padding="10px";
+panel.style.fontFamily="Arial";
 
-let p=normalize(cells[0].innerText.trim());
-let v=getNumber(cells[1].innerText);
+panel.innerHTML="<h3>Repeat Parameters</h3>";
 
-if(p==="CHOLESTEROL") chol=v;
-if(p==="TRIGLYCERIDES") tg=v;
-if(p==="HDL") hdl=v;
-if(p==="LDL") ldl=v;
+let list="<table border='1' style='width:100%;border-collapse:collapse'>";
+list+="<tr><th>Test</th><th>Value</th><th>Ref</th></tr>";
+
+abnormal.forEach(x=>{
+list+=`<tr>
+<td>${x.param}</td>
+<td>${x.val}</td>
+<td>${x.ref[0]}-${x.ref[1]}</td>
+</tr>`;
 });
 
-if(chol>300){
-rows.forEach(r=>deselect(r));
-}
+list+="</table>";
 
-if(ldl>190){
-rows.forEach(r=>deselect(r));
-}
+panel.innerHTML+=list;
 
-if(tg>400){
-rows.forEach(r=>deselect(r));
-}
+document.body.appendChild(panel);
 
-if(hdl<40){
-rows.forEach(r=>deselect(r));
-}
-
-/* =========================
-IRON PROFILE
-========================= */
-
-let iron=null,tibc=null;
-
-rows.forEach(row=>{
-let cells=row.querySelectorAll("td");
-if(cells.length<2) return;
-
-let p=normalize(cells[0].innerText.trim());
-let v=getNumber(cells[1].innerText);
-
-if(p==="IRON") iron=v;
-if(p==="TIBC") tibc=v;
-});
-
-if(iron && tibc){
-let sat=(iron/tibc)*100;
-
-if(sat<15 || sat>60){
-rows.forEach(r=>deselect(r));
-}
-}
-
-/* =========================
-DONE
-========================= */
-
-console.log("✅ Validation Completed");
+console.log("✅ Done");
 
 })();
