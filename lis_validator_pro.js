@@ -56,7 +56,7 @@
     // Glucose
     "fasting blood sugar": { low: 70, high: 100, unit: "mg/dL" },
     "ppbs": { low: 70, high: 140, unit: "mg/dL" },
-    "random blood sugar": { low: 70, high: 200, unit: "mg/dL" },
+    "random blood sugar": { low: 70, high: 140, unit: "mg/dL" },
 
     // Inflammatory/cardiac/other markers
     "hscrp": { low: 0, high: 5, unit: "mg/L" },
@@ -67,6 +67,10 @@
     "beta hcg": { low: 0, high: 5, unit: "mIU/mL" },
     "ca 19.9": { low: 0, high: 37, unit: "U/mL" },
     "ca 125": { low: 0, high: 35, unit: "U/mL" },
+
+    // HbA1c
+    // Edit according to your lab/reporting policy. Negative HbA1c is always abnormal irrespective of this range.
+    "hba1c": { low: 4.0, high: 5.6, unit: "%" },
 
     // Thyroid function test
     "t3": { low: 80, high: 180, unit: "ng/dL" },
@@ -115,6 +119,7 @@
     "beta hcg": ["beta hcg", "β hcg", "β-hcg", "bhcg", "b hcg", "beta-hcg"],
     "ca 19.9": ["ca 19.9", "ca19.9", "ca 19-9", "ca19-9", "carbohydrate antigen 19.9"],
     "ca 125": ["ca 125", "ca125", "cancer antigen 125"],
+    "hba1c": ["hba1c", "hb a1c", "hb-a1c", "glycated hemoglobin", "glycosylated hemoglobin", "a1c"],
 
     "t3": ["t3", "total t3", "triiodothyronine"],
     "t4": ["t4", "total t4", "thyroxine"],
@@ -204,7 +209,21 @@
   }
 
   function getVisibleText(el) {
-    return (el && el.innerText ? el.innerText : el && el.textContent ? el.textContent : "").trim();
+    if (!el) return "";
+
+    // Important for LIS pages: many result values are inside input boxes,
+    // so textContent/innerText may miss them. This fixes negative HbA1c and similar entries.
+    if (el.matches && el.matches("input, textarea, select")) {
+      return String(el.value || el.getAttribute("value") || "").trim();
+    }
+
+    const formValues = Array.from(el.querySelectorAll ? el.querySelectorAll("input, textarea, select") : [])
+      .map(input => String(input.value || input.getAttribute("value") || "").trim())
+      .filter(Boolean)
+      .join(" ");
+
+    const visibleText = (el.innerText ? el.innerText : el.textContent ? el.textContent : "").trim();
+    return `${visibleText} ${formValues}`.trim();
   }
 
   /************************************************************
@@ -251,7 +270,44 @@
   function detectResultValueInRow(row, analyteCell) {
     const cells = Array.from(row.querySelectorAll("td, th, [role='gridcell']"));
 
-    // Try to avoid selecting CR number, reference range, or analyte name cells.
+    // SAFETY FIX:
+    // In this LIS, the outer patient row can contain S.No, CR number, age, department,
+    // and also the nested result table. If that whole outer row is scanned, the script may
+    // accidentally read S.No/Age as the sugar value and deselect a normal glucose sample.
+    // So first we use the true analyte row layout:
+    // Test Param Name | Test Param Value | Reference Range
+    if (analyteCell && cells.length >= 2) {
+      const analyteIndex = cells.indexOf(analyteCell.closest("td, th, [role='gridcell']") || analyteCell);
+
+      if (analyteIndex >= 0) {
+        for (let i = analyteIndex + 1; i < Math.min(cells.length, analyteIndex + 4); i++) {
+          const candidateCell = cells[i];
+          const text = getVisibleText(candidateCell);
+
+          if (!text) continue;
+          if (extractCRNumber(text)) continue;
+          if (findCanonicalAnalyte(text)) continue;
+          if (/[0-9]+[ ]*[-–][ ]*[0-9]+/.test(text)) continue;
+
+          const numeric = extractNumericValue(text);
+          if (numeric) return { cell: candidateCell, numeric, text };
+        }
+      }
+    }
+
+    // Second pass: values inside editable input boxes within the SAME analyte row.
+    // This captures negative HbA1c without accidentally picking S.No or Age.
+    const inputCandidates = Array.from(row.querySelectorAll("input[type='text'], input:not([type]), textarea"))
+      .map(input => ({
+        cell: input.closest("td, th, [role='gridcell']") || input,
+        numeric: extractNumericValue(getVisibleText(input)),
+        text: getVisibleText(input)
+      }))
+      .filter(item => item.numeric && !extractCRNumber(item.text));
+
+    if (inputCandidates.length) return inputCandidates[0];
+
+    // Final fallback: scan only simple direct cells, avoiding CR number/reference range/analyte cells.
     const candidates = [];
 
     for (const cell of cells) {
@@ -260,18 +316,15 @@
       if (cell === analyteCell) continue;
       if (extractCRNumber(text)) continue;
       if (findCanonicalAnalyte(text)) continue;
-      if (/\d+\s*[-–]\s*\d+/.test(text)) continue; // likely reference range
+      if (/[0-9]+[ ]*[-–][ ]*[0-9]+/.test(text)) continue;
 
       const numeric = extractNumericValue(text);
       if (numeric) candidates.push({ cell, numeric, text });
     }
 
-    // Most LIS rows have result value after analyte name. Pick first plausible numeric candidate.
     if (candidates.length) return candidates[0];
 
-    // Fallback: use row text, but cell highlighting may be less precise.
-    const numeric = extractNumericValue(getVisibleText(row));
-    return numeric ? { cell: row, numeric, text: getVisibleText(row) } : null;
+    return null;
   }
 
   function findNearestCheckboxForCR(crNumber, row, allRows) {
@@ -399,6 +452,12 @@
 
       const checkbox = findNearestCheckboxForCR(currentCR, row, rows);
       if (checkbox && !sample.checkbox) sample.checkbox = checkbox;
+
+      // Do not validate the large outer patient/detail row if it contains a nested table.
+      // Only validate the actual inner result rows like:
+      // Test Param Name | Test Param Value | Reference Range.
+      // This prevents normal sugar values being deselected because S.No/Age were read as results.
+      if (row.querySelector("table")) return;
 
       const { analyte, analyteCell } = detectAnalyteInRow(row);
       if (!analyte) return;
