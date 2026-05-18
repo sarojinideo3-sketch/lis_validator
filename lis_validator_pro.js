@@ -1,492 +1,749 @@
+/*
+  LIS AutoValidation Tool - AIIMS style configurable version
+  Purpose:
+  - Scan LIS result table rows
+  - Detect abnormal results using user-defined reference ranges
+  - Highlight negative values light purple, high values red, low values orange/yellow
+  - Apply bilirubin logic: Total bilirubin must not be less than Direct or Indirect bilirubin
+  - Deselect checkbox on the left side of 15-digit CR/sample number if any analyte is abnormal
+  - Create floating repeat/abnormal list panel
+
+  How to use:
+  1. Open LIS validation page.
+  2. Press F12 > Console.
+  3. Paste this entire script and press Enter.
+  4. Click "Run Validation" in the floating panel.
+
+  IMPORTANT:
+  - Edit referenceRanges below as per your lab policy.
+  - This script does not delete or overwrite LIS values.
+  - It only highlights cells and unchecks checkboxes.
+*/
+
 (function () {
-  'use strict';
+  "use strict";
 
-  const STATE = {
-    running: false,
-    stopRequested: false,
-    processed: 0,
-    deselected: 0,
-    abnormal: 0,
-    log: []
+  /************************************************************
+   * 1. USER-DEFINED REFERENCE RANGES
+   * Edit these ranges as per your laboratory reference intervals.
+   ************************************************************/
+  const referenceRanges = {
+    // LFT
+    "total bilirubin": { low: 0.2, high: 1.2, unit: "mg/dL" },
+    "direct bilirubin": { low: 0.0, high: 0.3, unit: "mg/dL" },
+    "indirect bilirubin": { low: 0.0, high: 0.9, unit: "mg/dL" },
+    "ast": { low: 0, high: 40, unit: "U/L" },
+    "alt": { low: 0, high: 40, unit: "U/L" },
+    "alp": { low: 40, high: 129, unit: "U/L" },
+    "ggt": { low: 0, high: 55, unit: "U/L" },
+    "total protein": { low: 6.4, high: 8.3, unit: "g/dL" },
+    "albumin": { low: 3.5, high: 5.2, unit: "g/dL" },
+    "globulin": { low: 2.0, high: 3.5, unit: "g/dL" },
+    "ag ratio": { low: 1.0, high: 2.5, unit: "ratio" },
+
+    // RFT
+    "urea": { low: 10, high: 50, unit: "mg/dL" },
+    "creatinine": { low: 0.6, high: 1.3, unit: "mg/dL" },
+    "uric acid": { low: 2.5, high: 7.0, unit: "mg/dL" },
+
+    // Electrolytes/minerals
+    "sodium": { low: 135, high: 145, unit: "mmol/L" },
+    "potassium": { low: 3.5, high: 5.1, unit: "mmol/L" },
+    "chloride": { low: 98, high: 107, unit: "mmol/L" },
+    "calcium": { low: 8.6, high: 10.2, unit: "mg/dL" },
+    "magnesium": { low: 1.7, high: 2.4, unit: "mg/dL" },
+
+    // Glucose
+    "fasting blood sugar": { low: 70, high: 100, unit: "mg/dL" },
+    "ppbs": { low: 70, high: 140, unit: "mg/dL" },
+    "random blood sugar": { low: 70, high: 200, unit: "mg/dL" },
+
+    // Inflammatory/cardiac/other markers
+    "hscrp": { low: 0, high: 5, unit: "mg/L" },
+    "ferritin": { low: 10, high: 300, unit: "ng/mL" },
+    "nt pro bnp": { low: 0, high: 125, unit: "pg/mL" },
+    "procalcitonin": { low: 0, high: 0.05, unit: "ng/mL" },
+    "prolactin": { low: 0, high: 25, unit: "ng/mL" },
+    "beta hcg": { low: 0, high: 5, unit: "mIU/mL" },
+    "ca 19.9": { low: 0, high: 37, unit: "U/mL" },
+    "ca 125": { low: 0, high: 35, unit: "U/mL" },
+
+    // Thyroid function test
+    "t3": { low: 80, high: 180, unit: "ng/dL" },
+    "t4": { low: 4.5, high: 12.5, unit: "µg/dL" },
+    "tsh": { low: 0.4, high: 4.0, unit: "µIU/mL" },
+    "free t3": { low: 2.3, high: 4.2, unit: "pg/mL" },
+    "free t4": { low: 0.8, high: 1.8, unit: "ng/dL" }
   };
 
-  const CFG = {
-    maxRows: 100,
-    pageDelayMs: 450,
-    slightTolerance: 0.1
+  /************************************************************
+   * 2. ANALYTE SYNONYMS
+   * Add more synonyms if your LIS uses different names.
+   ************************************************************/
+  const analyteSynonyms = {
+    "total bilirubin": ["total bilirubin", "t bil", "t.bil", "tbil", "bilirubin total", "total bili"],
+    "direct bilirubin": ["direct bilirubin", "d bil", "d.bil", "dbil", "bilirubin direct", "conjugated bilirubin"],
+    "indirect bilirubin": ["indirect bilirubin", "i bil", "i.bil", "ibil", "bilirubin indirect", "unconjugated bilirubin"],
+    "ast": ["ast", "sgot", "aspartate aminotransferase"],
+    "alt": ["alt", "sgpt", "alanine aminotransferase"],
+    "alp": ["alp", "alkaline phosphatase", "alk phos"],
+    "ggt": ["ggt", "gamma gt", "gamma glutamyl transferase", "gamma glutamyl transpeptidase"],
+    "total protein": ["total protein", "protein total", "tp"],
+    "albumin": ["albumin", "alb"],
+    "globulin": ["globulin", "glob"],
+    "ag ratio": ["a:g ratio", "a/g ratio", "ag ratio", "albumin globulin ratio"],
+
+    "urea": ["urea", "blood urea"],
+    "creatinine": ["creatinine", "serum creatinine", "creat"],
+    "uric acid": ["uric acid", "serum uric acid"],
+
+    "sodium": ["sodium", "na", "na+"],
+    "potassium": ["potassium", "k", "k+"],
+    "chloride": ["chloride", "cl", "cl-"],
+    "calcium": ["calcium", "ca", "ca++", "total calcium"],
+    "magnesium": ["magnesium", "mg", "mg++"],
+
+    "fasting blood sugar": ["fasting blood sugar", "fbs", "glucose fasting", "fasting glucose", "blood sugar fasting"],
+    "ppbs": ["ppbs", "post prandial blood sugar", "postprandial blood sugar", "pp blood sugar", "glucose pp", "post meal glucose"],
+    "random blood sugar": ["random blood sugar", "rbs", "random glucose", "blood sugar random"],
+
+    "hscrp": ["hscrp", "hs-crp", "high sensitivity crp", "high sensitive crp"],
+    "ferritin": ["ferritin", "serum ferritin"],
+    "nt pro bnp": ["nt pro bnp", "nt-probnp", "nt probnp", "pro bnp", "ntprobnp"],
+    "procalcitonin": ["procalcitonin", "pct"],
+    "prolactin": ["prolactin", "prl"],
+    "beta hcg": ["beta hcg", "β hcg", "β-hcg", "bhcg", "b hcg", "beta-hcg"],
+    "ca 19.9": ["ca 19.9", "ca19.9", "ca 19-9", "ca19-9", "carbohydrate antigen 19.9"],
+    "ca 125": ["ca 125", "ca125", "cancer antigen 125"],
+
+    "t3": ["t3", "total t3", "triiodothyronine"],
+    "t4": ["t4", "total t4", "thyroxine"],
+    "tsh": ["tsh", "thyroid stimulating hormone"],
+    "free t3": ["free t3", "ft3", "f t3"],
+    "free t4": ["free t4", "ft4", "f t4"]
   };
 
-  const COLORS = {
-    violet: '#ead7ff',
-    red: '#ffd9d9',
-    green: '#ddf7dd'
+  /************************************************************
+   * 3. STYLE CONSTANTS
+   ************************************************************/
+  const STYLE = {
+    negative: "#ead7ff",      // light purple
+    high: "#ff8a8a",          // red/pink
+    low: "#ffe7a3",           // pale orange/yellow
+    logic: "#d8b4fe",         // stronger purple for bilirubin logic
+    checkbox: "#ff4d4d",
+    normalBorder: "1px solid #ccc"
   };
 
-  const RANGES = {
-    sodium: { min: 120, max: 150 },
-    potassium: { min: 2.5, max: 5.5 },
-    chloride: { min: 75, max: 118 },
-    bicarbonate: { min: 22, max: 29 },
-    calcium: { min: 7, max: 11.2 },
-    ionized_calcium: { min: 1.12, max: 1.32 },
-    phosphate: { min: 2.5, max: 4.5 },
-    magnesium: { min: 1.7, max: 2.2 },
-    total_cholesterol: { min: 100, max: 400 },
-    triglycerides: { min: 100, max: 150 },
-    hdl_male: { min: 40, max: 60 },
-    hdl_female: { min: 50, max: 60 },
-    ldl: { min: 0, max: 100 },
-    vldl: { min: 5, max: 40 },
-    ast: { min: 10, max: 40 },
-    alt: { min: 7, max: 56 },
-    alp: { min: 44, max: 147 },
-    ggt: { min: 9, max: 48 },
-    total_protein: { min: 6.0, max: 8.3 },
-    albumin: { min: 3.5, max: 5.0 },
-    globulin: { min: 2.0, max: 3.5 },
-    ag_ratio: { min: 1.0, max: 2.2 },
-    total_bilirubin: { min: 0.1, max: 3 },
-    direct_bilirubin: { min: 0.1, max: 2 },
-    indirect_bilirubin: { min: 0.1, max: 2 },
-    urea: { min: 11, max: 43 },
-    bun: { min: 7, max: 20 },
-    creatinine: { min: 0.4, max: 2 },
-    uric_acid: { min: 3.5, max: 7.2 },
-    serum_iron: { min: 60, max: 170 },
-    tibc: { min: 240, max: 450 },
-    uibc: { min: 150, max: 375 },
-    saturation: { min: 20, max: 50 },
-    ferritin_male: { min: 30, max: 400 },
-    ferritin_female: { min: 13, max: 150 },
-    hba1c: { min: 4.0, max: 5.6 },
-    fasting_glucose: { min: 60, max: 140 },
-    ppbs: { min: 60, max: 140 },
-    rbs: { min: 60, max: 140 },
-    microalbumin: { min: 0, max: 30 },
-    tsh: { min: 0.4, max: 4.0 },
-    ft4: { min: 0.8, max: 1.8 },
-    ft3: { min: 2.3, max: 4.2 },
-    pro_bnp: { min: 0, max: 125 },
-    vitamin_d: { min: 30, max: 100 },
-    vitamin_b12: { min: 200, max: 900 }
-  };
+  const TOOL_ID = "lis-auto-validation-panel-v1";
+  const HIGHLIGHT_CLASS = "lis-auto-validation-highlight";
+  const CHECKBOX_MARK_CLASS = "lis-auto-validation-checkbox-mark";
 
-  function norm(s) {
-    return String(s ?? '')
+  let lastReport = [];
+
+  /************************************************************
+   * 4. BASIC UTILITIES
+   ************************************************************/
+  function normalizeText(text) {
+    return String(text || "")
       .toLowerCase()
-      .replace(/\u00b5/g, 'u')
-      .replace(/\s+/g, ' ')
+      .replace(/[β]/g, "beta")
+      .replace(/[µμ]/g, "u")
+      .replace(/[+]/g, " plus ")
+      .replace(/[-_/()\[\]:]/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
   }
 
-  function text(el) {
-    return norm(el?.innerText || el?.textContent || '');
+  function escapeHtml(text) {
+    return String(text ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
-  function num(v) {
-    const m = String(v ?? '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
-    return m ? Number(m[0]) : null;
+  function extractCRNumber(text) {
+    const match = String(text || "").match(/\b\d{15}\b/);
+    return match ? match[0] : null;
   }
 
-  function isNegativeLike(v) {
-    const t = text({ innerText: v });
-    return /\b(negative|neg|nil|not detected|undetected)\b/.test(t) || t === '-' || t === '--';
+  function extractNumericValue(text) {
+    const raw = String(text || "").trim();
+    if (!raw) return null;
+
+    // Handles values like <0.05, >1000, 5.6 mg/dL, -1.2
+    const match = raw.match(/[<>]?\s*(-?\d+(?:\.\d+)?)/);
+    if (!match) return null;
+
+    const value = Number(match[1]);
+    if (Number.isNaN(value)) return null;
+
+    return {
+      value,
+      raw,
+      hasLessThan: /^\s*</.test(raw),
+      hasGreaterThan: /^\s*>/.test(raw)
+    };
   }
 
-  function isPlaceholder999(v) {
-    const t = String(v ?? '').replace(/\s+/g, '');
-    const n = num(v);
-    return (n != null && n >= 999) || /^9{3,}$/.test(t);
-  }
+  function findCanonicalAnalyte(text) {
+    const normalized = normalizeText(text);
+    if (!normalized) return null;
 
-  function is24HourUrine(v) {
-    return /24\s*(hour|hr|h)\s*urine|24h urine|24 hour urine/.test(norm(v));
-  }
-
-  function genderFromBlock(block) {
-    const t = text(block);
-    const m = t.match(/\b\d+\s*(?:yr|y|years?)\s*\|\s*([mf])\b/i);
-    return m ? m[1].toUpperCase() : '';
-  }
-
-  function crFromBlock(block) {
-    const t = text(block);
-    const m = t.match(/\b\d{15}\b/);
-    return m ? m[0] : '';
-  }
-
-  function findByCheckboxNearCr(block) {
-    const candidates = [...block.querySelectorAll('input[type="checkbox"]')];
-    if (!candidates.length) return null;
-
-    const withPos = candidates.map(cb => {
-      const r = cb.getBoundingClientRect();
-      return { cb, x: r.left, y: r.top };
-    }).sort((a, b) => a.y - b.y || a.x - b.x);
-
-    return withPos[0]?.cb || candidates[0] || null;
-  }
-
-  function clearMarks() {
-    // Intentionally no page-wide color reset, to avoid touching the site styling.
-  }
-
-  function mark(el, color) {
-    // Intentionally disabled. The tool should only deselect abnormal rows.
-    return;
-  }
-
-  function clickCheckbox(cb, checked) {
-    if (!cb) return;
-    cb.checked = checked;
-    cb.dispatchEvent(new Event('input', { bubbles: true }));
-    cb.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
-  function normalizeTestName(name) {
-    const t = norm(name);
-    const rules = [
-      [/\bhba1c\b|glycated hemoglobin|hemoglobin a1c/, 'hba1c'],
-      [/\bfasting\b.*\bsugar\b|\bfbs\b|fasting glucose|fasting blood sugar/, 'fasting_glucose'],
-      [/\bppbs\b|post prandial|post-prandial|after meal sugar/, 'ppbs'],
-      [/\brbs\b|random sugar|random blood sugar/, 'rbs'],
-      [/\bsodium\b|\bna\b/, 'sodium'],
-      [/\bpotassium\b|\bk\b/, 'potassium'],
-      [/\bchloride\b|\bcl\b/, 'chloride'],
-      [/\bbicarbonate\b|\bhco3\b|tco2|total co2/, 'bicarbonate'],
-      [/\bionized calcium\b/, 'ionized_calcium'],
-      [/\bcalcium\b/, 'calcium'],
-      [/\bphosphate\b|\bphosphorus\b|po4/, 'phosphate'],
-      [/\bmagnesium\b/, 'magnesium'],
-      [/\btotal cholesterol\b|cholesterol total|\btc\b/, 'total_cholesterol'],
-      [/\btriglyceride\b|\btg\b/, 'triglycerides'],
-      [/\bhdl\b/, 'hdl'],
-      [/\bldl\b/, 'ldl'],
-      [/\bvldl\b/, 'vldl'],
-      [/\bast\b|sgot/, 'ast'],
-      [/\balt\b|sgpt/, 'alt'],
-      [/\balp\b|alkaline phosphatase/, 'alp'],
-      [/\bggt\b|gamma gt/, 'ggt'],
-      [/\btotal protein\b/, 'total_protein'],
-      [/\balbumin\b/, 'albumin'],
-      [/\bglobulin\b/, 'globulin'],
-      [/\ba\/?g ratio\b|ag ratio/, 'ag_ratio'],
-      [/\btotal bilirubin\b|\btbil\b/, 'total_bilirubin'],
-      [/\bdirect bilirubin\b|\bdbil\b/, 'direct_bilirubin'],
-      [/\bindirect bilirubin\b|\bibil\b/, 'indirect_bilirubin'],
-      [/\burea\b/, 'urea'],
-      [/\bbun\b/, 'bun'],
-      [/\bcreatinine\b/, 'creatinine'],
-      [/\buric acid\b/, 'uric_acid'],
-      [/\bserum iron\b|\biron\b/, 'serum_iron'],
-      [/\btibc\b/, 'tibc'],
-      [/\buibc\b/, 'uibc'],
-      [/\bsaturation\b/, 'saturation'],
-      [/\bferritin\b/, 'ferritin'],
-      [/\btsh\b/, 'tsh'],
-      [/\bft4\b|free t4|free thyroxine/, 'ft4'],
-      [/\bft3\b|free t3|free triiodothyronine/, 'ft3'],
-      [/\bpro bnp\b|nt pro bnp|nt-pro bnp|bnp\b/, 'pro_bnp'],
-      [/\bvitamin d\b|25 oh vitamin d|25-hydroxy vitamin d/, 'vitamin_d'],
-      [/\bvitamin b12\b|\bb12\b|cobalamin/, 'vitamin_b12'],
-      [/microalbumin|acr|urine albumin/, 'microalbumin'],
-      [new RegExp('24\s*(hr|hrs|hour|hours)\s*urine|24\s*(hr|hrs|hour|hours)\s*urinary\s*protein|24\s*h\s*urine', 'i'), 'urine_24h_protein']
-    ];
-    for (const [re, key] of rules) if (re.test(t)) return key;
-    return '';
-  }
-
-  function rangeFor(key, gender) {
-    if (key === 'hdl') return gender === 'F' ? RANGES.hdl_female : RANGES.hdl_male;
-    if (key === 'ferritin') return gender === 'F' ? RANGES.ferritin_female : RANGES.ferritin_male;
-    return RANGES[key] || null;
-  }
-
-  function verdict(valueText, key, gender) {
-    const t = norm(valueText);
-    const n = num(t);
-
-    if (key === 'urine_24h_protein' || is24HourUrine(t)) {
-      return { abnormal: true, status: 'high', reason: '24 hour urine' };
-    }
-
-    if (key === 'microalbumin') {
-      if (isNegativeLike(t) || isPlaceholder999(t)) {
-        return { abnormal: true, status: 'high', reason: 'microalbumin invalid' };
+    for (const [canonical, synonyms] of Object.entries(analyteSynonyms)) {
+      for (const synonym of synonyms) {
+        const syn = normalizeText(synonym);
+        const pattern = new RegExp(`(^|\\b)${syn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\b|$)`, "i");
+        if (pattern.test(normalized)) return canonical;
       }
-      return { abnormal: false, status: 'normal', reason: '' };
     }
 
-    if (['sodium', 'potassium', 'creatinine', 'urea', 'calcium', 'magnesium', 'phosphate'].includes(key)) {
-      const range = rangeFor(key, gender);
-      if (!range || n == null) return { abnormal: false, status: 'unknown', reason: '' };
-      if (n >= range.min && n <= range.max) return { abnormal: false, status: 'normal', reason: '' };
-      return { abnormal: true, status: n > range.max ? 'high' : 'low', reason: 'range' };
+    return null;
+  }
+
+  function getVisibleText(el) {
+    return (el && el.innerText ? el.innerText : el && el.textContent ? el.textContent : "").trim();
+  }
+
+  /************************************************************
+   * 5. DOM DISCOVERY
+   ************************************************************/
+  function getCandidateRows() {
+    // Prefer table rows. If LIS uses div grid, fallback to role=row and common row-like elements.
+    let rows = Array.from(document.querySelectorAll("tr"));
+
+    if (rows.length < 5) {
+      rows = Array.from(document.querySelectorAll('[role="row"], .row, .data-row, .grid-row'));
     }
 
-    if (isNegativeLike(t)) return { abnormal: true, status: 'negative', reason: 'negative' };
-    if (isPlaceholder999(t)) return { abnormal: true, status: 'high', reason: '999' };
+    // Keep rows that contain either CR number, checkbox, or known analyte text.
+    rows = rows.filter(row => {
+      const text = getVisibleText(row);
+      return extractCRNumber(text) || row.querySelector('input[type="checkbox"]') || findCanonicalAnalyte(text);
+    });
 
-    const range = rangeFor(key, gender);
-    if (!range || n == null) return { abnormal: false, status: 'unknown', reason: '' };
-
-    if (n >= range.min && n <= range.max) return { abnormal: false, status: 'normal', reason: '' };
-
-    const edge = n < range.min ? range.min : range.max;
-    const diff = Math.abs(n - edge);
-    const span = Math.max(Math.abs(range.max - range.min), 1);
-    const status = (diff / span <= CFG.slightTolerance) ? 'slight' : (n > range.max ? 'high' : 'low');
-    return { abnormal: true, status, reason: status };
-  }
-
-  function getAllRows() {
-    return [...document.querySelectorAll('tr')].filter(tr => tr.offsetParent !== null);
-  }
-
-  function isMainRow(tr) {
-    const t = text(tr);
-    return /\b\d{15}\b/.test(t) && tr.querySelector('input[type="checkbox"]');
-  }
-
-  function extractParamRowsFromBlock(mainRow, rows) {
-    const start = rows.indexOf(mainRow);
-    if (start < 0) return [];
-
-    const out = [];
-    for (let i = start + 1; i < rows.length; i++) {
-      const row = rows[i];
-      const t = text(row);
-      if (isMainRow(row)) break;
-      if (/result entry date|sample\/accession no|validation status|to be validated/i.test(t)) continue;
-      if (/test param name/i.test(t) && /reference range/i.test(t)) continue;
-      if (row.querySelector('input[type="checkbox"]') && row.querySelectorAll('td,th').length >= 2) out.push(row);
-    }
-    return out;
+    // Limit to first 100 meaningful rows as requested, but if more are present we scan all because it is safer.
+    return rows;
   }
 
   function getCells(row) {
-    return [...row.querySelectorAll('td, th')];
+    const cells = Array.from(row.querySelectorAll("td, th, [role='gridcell'], input, span, div"));
+    return cells.length ? cells : [row];
   }
 
-  function rowNameValue(row) {
+  function detectAnalyteInRow(row) {
     const cells = getCells(row);
-    const name = (cells[0]?.innerText || '').trim();
-    const value = (cells[1]?.innerText || '').trim();
-    const ref = (cells[2]?.innerText || '').trim();
-    return { name, value, ref };
-  }
 
-  function applyBilirubinRule(paramRows) {
-    let tbil = null, dbil = null, ibil = null;
-    const refs = { tbil: null, dbil: null, ibil: null };
-
-    for (const row of paramRows) {
-      const { name, value } = rowNameValue(row);
-      const key = normalizeTestName(name);
-      if (key === 'total_bilirubin') { tbil = num(value); refs.tbil = row; }
-      if (key === 'direct_bilirubin') { dbil = num(value); refs.dbil = row; }
-      if (key === 'indirect_bilirubin') { ibil = num(value); refs.ibil = row; }
+    // First pass: detect analyte from cell text.
+    for (const cell of cells) {
+      const analyte = findCanonicalAnalyte(getVisibleText(cell));
+      if (analyte) return { analyte, analyteCell: cell };
     }
 
-    if (tbil == null || dbil == null || ibil == null) return [];
-
-    if (tbil < dbil || tbil < ibil || (dbil + ibil) > tbil) {
-      return [refs.tbil, refs.dbil, refs.ibil].filter(Boolean);
-    }
-
-    return [];
+    // Fallback: detect from whole row text.
+    const rowText = getVisibleText(row);
+    const analyte = findCanonicalAnalyte(rowText);
+    return analyte ? { analyte, analyteCell: row } : { analyte: null, analyteCell: null };
   }
 
-  function deselectCheckboxInRow(row) {
-    const cb = row?.querySelector('input[type="checkbox"]');
-    if (cb) clickCheckbox(cb, false);
-  }
+  function detectResultValueInRow(row, analyteCell) {
+    const cells = Array.from(row.querySelectorAll("td, th, [role='gridcell']"));
 
-  function inspectMainBlock(mainRow, rows) {
-    const gender = genderFromBlock(mainRow);
-    const mainCb = findByCheckboxNearCr(mainRow);
-    const paramRows = extractParamRowsFromBlock(mainRow, rows);
+    // Try to avoid selecting CR number, reference range, or analyte name cells.
+    const candidates = [];
 
-    const abnormalRows = new Set();
+    for (const cell of cells) {
+      const text = getVisibleText(cell);
+      if (!text) continue;
+      if (cell === analyteCell) continue;
+      if (extractCRNumber(text)) continue;
+      if (findCanonicalAnalyte(text)) continue;
+      if (/\d+\s*[-–]\s*\d+/.test(text)) continue; // likely reference range
 
-    for (const row of paramRows) {
-      const { name, value, ref } = rowNameValue(row);
-      const key = normalizeTestName(name);
-      if (!key) continue;
-
-      const combined = `${name} ${value} ${ref}`;
-      const v = verdict(combined, key, gender);
-      if (v.abnormal) abnormalRows.add(row);
+      const numeric = extractNumericValue(text);
+      if (numeric) candidates.push({ cell, numeric, text });
     }
 
-    // Bilirubin cross-check
-    for (const row of applyBilirubinRule(paramRows)) abnormalRows.add(row);
+    // Most LIS rows have result value after analyte name. Pick first plausible numeric candidate.
+    if (candidates.length) return candidates[0];
 
-    if (abnormalRows.size) {
-      if (mainCb) clickCheckbox(mainCb, false);
+    // Fallback: use row text, but cell highlighting may be less precise.
+    const numeric = extractNumericValue(getVisibleText(row));
+    return numeric ? { cell: row, numeric, text: getVisibleText(row) } : null;
+  }
 
-      for (const row of abnormalRows) {
-        deselectCheckboxInRow(row);
+  function findNearestCheckboxForCR(crNumber, row, allRows) {
+    // 1. Same row checkbox, preferably left of CR text.
+    const sameRowCheckboxes = Array.from(row.querySelectorAll('input[type="checkbox"]'));
+    if (sameRowCheckboxes.length) return sameRowCheckboxes[0];
+
+    // 2. Search rows containing same CR number.
+    const crRows = allRows.filter(r => getVisibleText(r).includes(crNumber));
+    for (const crRow of crRows) {
+      const cb = crRow.querySelector('input[type="checkbox"]');
+      if (cb) return cb;
+    }
+
+    // 3. Search previous few rows, because many LIS tables show CR number once and analytes below it.
+    const idx = allRows.indexOf(row);
+    for (let i = idx; i >= Math.max(0, idx - 8); i--) {
+      const r = allRows[i];
+      const text = getVisibleText(r);
+      if (text.includes(crNumber) || extractCRNumber(text)) {
+        const cb = r.querySelector('input[type="checkbox"]');
+        if (cb) return cb;
+      }
+    }
+
+    // 4. Search parent block.
+    const parent = row.closest("table, tbody, form, div");
+    if (parent) {
+      const possibleRows = Array.from(parent.querySelectorAll("tr, [role='row'], .row, .data-row, .grid-row"));
+      for (const possibleRow of possibleRows) {
+        if (getVisibleText(possibleRow).includes(crNumber)) {
+          const cb = possibleRow.querySelector('input[type="checkbox"]');
+          if (cb) return cb;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /************************************************************
+   * 6. HIGHLIGHTING AND CHECKBOX ACTIONS
+   ************************************************************/
+  function highlightCell(cell, color, reason) {
+    if (!cell) return;
+    cell.classList.add(HIGHLIGHT_CLASS);
+    cell.dataset.lisAutoOldBg = cell.dataset.lisAutoOldBg || cell.style.backgroundColor || "";
+    cell.dataset.lisAutoOldBorder = cell.dataset.lisAutoOldBorder || cell.style.border || "";
+    cell.style.backgroundColor = color;
+    cell.style.border = "2px solid rgba(90, 0, 130, 0.35)";
+    cell.title = reason;
+  }
+
+  function markCheckbox(checkbox, reason) {
+    if (!checkbox) return;
+
+    checkbox.dataset.lisAutoWasChecked = checkbox.dataset.lisAutoWasChecked || String(checkbox.checked);
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    checkbox.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const container = checkbox.closest("td, th, div, span") || checkbox.parentElement;
+    if (container) {
+      container.classList.add(CHECKBOX_MARK_CLASS);
+      container.dataset.lisAutoOldOutline = container.dataset.lisAutoOldOutline || container.style.outline || "";
+      container.style.outline = `3px solid ${STYLE.checkbox}`;
+      container.title = reason || "Deselected by LIS autovalidation tool";
+    }
+  }
+
+  function resetHighlights() {
+    document.querySelectorAll(`.${HIGHLIGHT_CLASS}`).forEach(el => {
+      el.style.backgroundColor = el.dataset.lisAutoOldBg || "";
+      el.style.border = el.dataset.lisAutoOldBorder || "";
+      el.title = "";
+      el.classList.remove(HIGHLIGHT_CLASS);
+      delete el.dataset.lisAutoOldBg;
+      delete el.dataset.lisAutoOldBorder;
+    });
+
+    document.querySelectorAll(`.${CHECKBOX_MARK_CLASS}`).forEach(el => {
+      el.style.outline = el.dataset.lisAutoOldOutline || "";
+      el.title = "";
+      el.classList.remove(CHECKBOX_MARK_CLASS);
+      delete el.dataset.lisAutoOldOutline;
+    });
+
+    // Optional: restore checkboxes to previous state.
+    // Comment this block if you do not want reset to re-check boxes.
+    document.querySelectorAll('input[type="checkbox"][data-lis-auto-was-checked]').forEach(cb => {
+      cb.checked = cb.dataset.lisAutoWasChecked === "true";
+      cb.dispatchEvent(new Event("change", { bubbles: true }));
+      delete cb.dataset.lisAutoWasChecked;
+    });
+
+    lastReport = [];
+    updatePanelSummary({ rowsScanned: 0, samplesScanned: 0, deselected: 0, report: [] });
+  }
+
+  /************************************************************
+   * 7. ROW GROUPING BY CR NUMBER
+   ************************************************************/
+  function buildSampleMap(rows) {
+    const sampleMap = new Map();
+    let currentCR = null;
+
+    rows.forEach((row, index) => {
+      const text = getVisibleText(row);
+      const crInRow = extractCRNumber(text);
+      if (crInRow) currentCR = crInRow;
+      if (!currentCR) return;
+
+      if (!sampleMap.has(currentCR)) {
+        sampleMap.set(currentCR, {
+          crNumber: currentCR,
+          rows: [],
+          checkbox: null,
+          analytes: {},
+          abnormalities: []
+        });
       }
 
-      STATE.deselected += abnormalRows.size + 1;
-      STATE.abnormal += abnormalRows.size;
-      STATE.log.push({ cr: crFromBlock(mainRow), rows: [...abnormalRows].map(r => text(r)) });
+      const sample = sampleMap.get(currentCR);
+      sample.rows.push(row);
+
+      const checkbox = findNearestCheckboxForCR(currentCR, row, rows);
+      if (checkbox && !sample.checkbox) sample.checkbox = checkbox;
+
+      const { analyte, analyteCell } = detectAnalyteInRow(row);
+      if (!analyte) return;
+
+      const valueInfo = detectResultValueInRow(row, analyteCell);
+      if (!valueInfo) return;
+
+      sample.analytes[analyte] = {
+        analyte,
+        value: valueInfo.numeric.value,
+        raw: valueInfo.numeric.raw,
+        valueCell: valueInfo.cell,
+        analyteCell,
+        row,
+        rowIndex: index
+      };
+    });
+
+    return sampleMap;
+  }
+
+  /************************************************************
+   * 8. ABNORMALITY DETECTION
+   ************************************************************/
+  function checkAnalyteAgainstRange(sample, analyteData) {
+    const analyte = analyteData.analyte;
+    const range = referenceRanges[analyte];
+    const value = analyteData.value;
+
+    if (value < 0) {
+      return {
+        crNumber: sample.crNumber,
+        analyte,
+        value,
+        raw: analyteData.raw,
+        reason: "Negative value",
+        severity: "negative",
+        color: STYLE.negative,
+        cell: analyteData.valueCell
+      };
     }
 
-    STATE.processed += 1;
-    updateCounters();
-  }
+    if (!range) return null;
 
-  function updateCounters() {
-    const p = document.getElementById('__av_processed__');
-    const d = document.getElementById('__av_deselected__');
-    const a = document.getElementById('__av_abnormal__');
-    if (p) p.textContent = String(STATE.processed);
-    if (d) d.textContent = String(STATE.deselected);
-    if (a) a.textContent = String(STATE.abnormal);
-  }
-
-  function setStatus(msg) {
-    const el = document.getElementById('__av_status__');
-    if (el) el.textContent = msg;
-  }
-
-  function getNextPageButton() {
-    const btns = [...document.querySelectorAll('button, a, li, span')];
-    return btns.find(b => /^(next|>)$/i.test((b.innerText || '').trim()) || /\bnext\b/i.test(b.innerText || '')) || null;
-  }
-
-  async function scanCurrentPage(limit = CFG.maxRows) {
-    STATE.running = true;
-    STATE.stopRequested = false;
-    setStatus('Scanning current page...');
-
-    const rows = getAllRows();
-    const mainRows = rows.filter(isMainRow).slice(0, limit);
-
-    for (const mainRow of mainRows) {
-      if (STATE.stopRequested) break;
-      inspectMainBlock(mainRow, rows);
-      await new Promise(r => setTimeout(r, 25));
+    if (value > range.high) {
+      return {
+        crNumber: sample.crNumber,
+        analyte,
+        value,
+        raw: analyteData.raw,
+        reason: `High value > ${range.high} ${range.unit || ""}`.trim(),
+        severity: "high",
+        color: STYLE.high,
+        cell: analyteData.valueCell
+      };
     }
 
-    STATE.running = false;
-    setStatus(STATE.stopRequested ? 'Stopped' : `Scanned ${mainRows.length} block(s)`);
+    if (value < range.low) {
+      return {
+        crNumber: sample.crNumber,
+        analyte,
+        value,
+        raw: analyteData.raw,
+        reason: `Low value < ${range.low} ${range.unit || ""}`.trim(),
+        severity: "low",
+        color: STYLE.low,
+        cell: analyteData.valueCell
+      };
+    }
+
+    return null;
   }
 
-  async function scan100Rows() {
-    STATE.running = true;
-    STATE.stopRequested = false;
-    STATE.processed = 0;
-    STATE.deselected = 0;
-    STATE.abnormal = 0;
-    STATE.log = [];
-    updateCounters();
-    setStatus('Scanning 100 rows...');
+  function checkBilirubinLogic(sample) {
+    const result = [];
+    const total = sample.analytes["total bilirubin"];
+    const direct = sample.analytes["direct bilirubin"];
+    const indirect = sample.analytes["indirect bilirubin"];
 
-    while (!STATE.stopRequested && STATE.processed < CFG.maxRows) {
-      const rows = getAllRows();
-      const mainRows = rows.filter(isMainRow);
-      if (!mainRows.length) break;
+    if (total && direct && total.value < direct.value) {
+      result.push({
+        crNumber: sample.crNumber,
+        analyte: "total/direct bilirubin",
+        value: `${total.value} / ${direct.value}`,
+        raw: `${total.raw} / ${direct.raw}`,
+        reason: "Bilirubin logic error: Total bilirubin is less than Direct bilirubin",
+        severity: "logic",
+        color: STYLE.logic,
+        cell: total.valueCell,
+        extraCells: [direct.valueCell]
+      });
+    }
 
-      for (const mainRow of mainRows) {
-        if (STATE.stopRequested || STATE.processed >= CFG.maxRows) break;
-        inspectMainBlock(mainRow, rows);
-        await new Promise(r => setTimeout(r, 20));
+    if (total && indirect && total.value < indirect.value) {
+      result.push({
+        crNumber: sample.crNumber,
+        analyte: "total/indirect bilirubin",
+        value: `${total.value} / ${indirect.value}`,
+        raw: `${total.raw} / ${indirect.raw}`,
+        reason: "Bilirubin logic error: Total bilirubin is less than Indirect bilirubin",
+        severity: "logic",
+        color: STYLE.logic,
+        cell: total.valueCell,
+        extraCells: [indirect.valueCell]
+      });
+    }
+
+    return result;
+  }
+
+  /************************************************************
+   * 9. MAIN VALIDATION FUNCTION
+   ************************************************************/
+  function runValidation() {
+    resetHighlightsOnly();
+
+    const rows = getCandidateRows();
+    const sampleMap = buildSampleMap(rows);
+    const report = [];
+    let deselectedCount = 0;
+
+    console.group("LIS AutoValidation Tool");
+    console.log("Rows detected:", rows.length);
+    console.log("Samples detected:", sampleMap.size);
+
+    sampleMap.forEach(sample => {
+      const sampleFindings = [];
+
+      Object.values(sample.analytes).forEach(analyteData => {
+        const finding = checkAnalyteAgainstRange(sample, analyteData);
+        if (finding) sampleFindings.push(finding);
+      });
+
+      const bilirubinFindings = checkBilirubinLogic(sample);
+      sampleFindings.push(...bilirubinFindings);
+
+      if (sampleFindings.length > 0) {
+        sampleFindings.forEach(finding => {
+          highlightCell(finding.cell, finding.color, finding.reason);
+          if (Array.isArray(finding.extraCells)) {
+            finding.extraCells.forEach(cell => highlightCell(cell, finding.color, finding.reason));
+          }
+          report.push(finding);
+        });
+
+        if (sample.checkbox) {
+          markCheckbox(sample.checkbox, "Deselected because one or more analytes are abnormal");
+          deselectedCount++;
+        } else {
+          console.warn("Checkbox not found for CR:", sample.crNumber);
+        }
       }
+    });
 
-      if (STATE.stopRequested || STATE.processed >= CFG.maxRows) break;
-      const next = getNextPageButton();
-      if (!next) break;
-      next.click();
-      await new Promise(r => setTimeout(r, CFG.pageDelayMs));
-    }
+    lastReport = report;
+    updatePanelSummary({
+      rowsScanned: rows.length,
+      samplesScanned: sampleMap.size,
+      deselected: deselectedCount,
+      report
+    });
 
-    STATE.running = false;
-    setStatus(STATE.stopRequested ? 'Stopped' : 'Finished');
+    console.table(report.map(r => ({
+      CR: r.crNumber,
+      Analyte: r.analyte,
+      Value: r.raw || r.value,
+      Reason: r.reason
+    })));
+    console.groupEnd();
   }
 
-  function stopScan() {
-    STATE.stopRequested = true;
-    setStatus('Stopping...');
+  function resetHighlightsOnly() {
+    document.querySelectorAll(`.${HIGHLIGHT_CLASS}`).forEach(el => {
+      el.style.backgroundColor = el.dataset.lisAutoOldBg || "";
+      el.style.border = el.dataset.lisAutoOldBorder || "";
+      el.title = "";
+      el.classList.remove(HIGHLIGHT_CLASS);
+      delete el.dataset.lisAutoOldBg;
+      delete el.dataset.lisAutoOldBorder;
+    });
+
+    document.querySelectorAll(`.${CHECKBOX_MARK_CLASS}`).forEach(el => {
+      el.style.outline = el.dataset.lisAutoOldOutline || "";
+      el.title = "";
+      el.classList.remove(CHECKBOX_MARK_CLASS);
+      delete el.dataset.lisAutoOldOutline;
+    });
   }
 
-  function resetMarks() {
-    clearMarks();
-  }
+  /************************************************************
+   * 10. FLOATING PANEL
+   ************************************************************/
+  function createPanel() {
+    const old = document.getElementById(TOOL_ID);
+    if (old) old.remove();
 
-  function downloadLog() {
-    const out = STATE.log.map(x => `${x.cr || 'N/A'} | ${x.rows.join(' || ')}`).join('\n');
-    const blob = new Blob([out], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'auto_validation_log.txt';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 500);
-  }
+    const panel = document.createElement("div");
+    panel.id = TOOL_ID;
+    panel.style.cssText = `
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      z-index: 999999;
+      width: 390px;
+      max-height: 80vh;
+      overflow: auto;
+      background: #ffffff;
+      color: #222;
+      border: 1px solid #ddd;
+      border-radius: 14px;
+      box-shadow: 0 12px 35px rgba(0,0,0,0.22);
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+    `;
 
-  function panel() {
-    if (document.getElementById('__av_panel__')) return;
-
-    const root = document.createElement('div');
-    root.id = '__av_panel__';
-    root.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483647;background:#0f172a;color:#fff;border-radius:18px;padding:8px 12px;font-family:Arial,sans-serif;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.2);font-size:13px;';
-    root.textContent = '⚡ AV';
-    document.body.appendChild(root);
-
-    root.onclick = () => {
-      if (document.getElementById('__av_fullpanel__')) return;
-
-      const panel = document.createElement('div');
-      panel.id = '__av_fullpanel__';
-      panel.style.cssText = 'position:fixed;right:14px;bottom:60px;width:280px;background:#fff;border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,0.2);font-family:Arial;padding:12px;z-index:2147483647;color:#111;';
-
-      panel.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <b>Auto Validation</b>
-          <button id="__av_close__" style="border:none;background:#e11d48;color:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;">X</button>
+    panel.innerHTML = `
+      <div style="background:#111827;color:white;padding:12px 14px;border-radius:14px 14px 0 0;display:flex;align-items:center;justify-content:space-between;">
+        <strong>LIS AutoValidation</strong>
+        <button id="lisAutoClose" style="background:#ef4444;color:white;border:0;border-radius:8px;padding:4px 8px;cursor:pointer;">×</button>
+      </div>
+      <div style="padding:12px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+          <button id="lisAutoRun" style="background:#16a34a;color:white;border:0;border-radius:10px;padding:9px;cursor:pointer;font-weight:bold;">Run Validation</button>
+          <button id="lisAutoReset" style="background:#f59e0b;color:white;border:0;border-radius:10px;padding:9px;cursor:pointer;font-weight:bold;">Reset</button>
+          <button id="lisAutoPrint" style="background:#2563eb;color:white;border:0;border-radius:10px;padding:9px;cursor:pointer;font-weight:bold;">Print List</button>
+          <button id="lisAutoMin" style="background:#6b7280;color:white;border:0;border-radius:10px;padding:9px;cursor:pointer;font-weight:bold;">Minimize</button>
         </div>
-        <div id="__av_status__" style="font-size:12px;color:#334155;margin-bottom:10px;">Ready</div>
-        <button id="__av_scan100_btn__" style="width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer;">Scan 100</button>
-        <button id="__av_scanpage_btn__" style="width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:8px;background:#0f766e;color:#fff;cursor:pointer;">Scan Page</button>
-        <button id="__av_stop_btn__" style="width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:8px;background:#dc2626;color:#fff;cursor:pointer;">Stop</button>
-        <button id="__av_reset_btn__" style="width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:8px;background:#6b7280;color:#fff;cursor:pointer;">Reset</button>
-        <button id="__av_log_btn__" style="width:100%;padding:8px;border:none;border-radius:8px;background:#7c3aed;color:#fff;cursor:pointer;">Download Log</button>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;font-size:12px;">
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Processed</div><div id="__av_processed__" style="font-size:18px;font-weight:700;">0</div></div>
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Deselected</div><div id="__av_deselected__" style="font-size:18px;font-weight:700;">0</div></div>
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px;"><div style="color:#64748b;">Abnormal</div><div id="__av_abnormal__" style="font-size:18px;font-weight:700;">0</div></div>
+        <div id="lisAutoSummary" style="border:1px solid #eee;border-radius:10px;padding:10px;background:#f9fafb;">
+          Ready. Click <b>Run Validation</b>.
         </div>
-      `;
+        <div id="lisAutoList" style="margin-top:10px;"></div>
+      </div>
+    `;
 
-      document.body.appendChild(panel);
-      panel.querySelector('#__av_close__').onclick = () => panel.remove();
-      panel.querySelector('#__av_scan100_btn__').onclick = scan100Rows;
-      panel.querySelector('#__av_scanpage_btn__').onclick = () => scanCurrentPage(100);
-      panel.querySelector('#__av_stop_btn__').onclick = stopScan;
-      panel.querySelector('#__av_reset_btn__').onclick = resetMarks;
-      panel.querySelector('#__av_log_btn__').onclick = downloadLog;
-    };
+    document.body.appendChild(panel);
+
+    document.getElementById("lisAutoRun").addEventListener("click", runValidation);
+    document.getElementById("lisAutoReset").addEventListener("click", resetHighlights);
+    document.getElementById("lisAutoPrint").addEventListener("click", printReport);
+    document.getElementById("lisAutoClose").addEventListener("click", () => panel.remove());
+    document.getElementById("lisAutoMin").addEventListener("click", () => {
+      const list = document.getElementById("lisAutoList");
+      const summary = document.getElementById("lisAutoSummary");
+      const isHidden = list.style.display === "none";
+      list.style.display = isHidden ? "block" : "none";
+      summary.style.display = isHidden ? "block" : "none";
+    });
   }
 
-  function init() {
-    panel();
-    window.__AUTO_VALIDATION_TOOL__ = {
-      scan100Rows,
-      scanCurrentPage,
-      stopScan,
-      resetMarks,
-      destroy() {
-        STATE.stopRequested = true;
-        document.getElementById('__av_panel__')?.remove();
-        document.getElementById('__av_fullpanel__')?.remove();
-        delete window.__AUTO_VALIDATION_TOOL__;
-      }
-    };
-    console.log('Auto Validation Tool ready');
+  function updatePanelSummary({ rowsScanned, samplesScanned, deselected, report }) {
+    const summary = document.getElementById("lisAutoSummary");
+    const list = document.getElementById("lisAutoList");
+    if (!summary || !list) return;
+
+    const uniqueCR = new Set(report.map(r => r.crNumber));
+
+    summary.innerHTML = `
+      <div><b>Rows scanned:</b> ${rowsScanned}</div>
+      <div><b>Samples scanned:</b> ${samplesScanned}</div>
+      <div><b>Samples deselected:</b> ${deselected}</div>
+      <div><b>Abnormal findings:</b> ${report.length}</div>
+      <div><b>Abnormal CR numbers:</b> ${uniqueCR.size}</div>
+    `;
+
+    if (!report.length) {
+      list.innerHTML = `<div style="padding:10px;border-radius:10px;background:#ecfdf5;color:#065f46;">No abnormal findings detected.</div>`;
+      return;
+    }
+
+    const grouped = {};
+    report.forEach(r => {
+      grouped[r.crNumber] = grouped[r.crNumber] || [];
+      grouped[r.crNumber].push(r);
+    });
+
+    list.innerHTML = Object.entries(grouped).map(([cr, findings]) => `
+      <div style="border:1px solid #e5e7eb;border-radius:12px;margin-bottom:10px;overflow:hidden;">
+        <div style="background:#fee2e2;padding:8px 10px;font-weight:bold;color:#991b1b;">CR: ${escapeHtml(cr)}</div>
+        <div style="padding:8px 10px;">
+          ${findings.map(f => `
+            <div style="margin-bottom:7px;padding-bottom:7px;border-bottom:1px dashed #ddd;">
+              <div><b>${escapeHtml(f.analyte)}</b>: ${escapeHtml(f.raw || f.value)}</div>
+              <div style="color:#7f1d1d;">${escapeHtml(f.reason)}</div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `).join("");
   }
 
-  init();
+  function printReport() {
+    const rows = lastReport || [];
+    const html = `
+      <html>
+      <head>
+        <title>LIS Abnormal Repeat List</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h2 { margin-bottom: 4px; }
+          table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; font-size: 13px; }
+          th { background: #f3f4f6; }
+        </style>
+      </head>
+      <body>
+        <h2>LIS AutoValidation Abnormal List</h2>
+        <div>Generated: ${new Date().toLocaleString()}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>CR Number</th>
+              <th>Analyte</th>
+              <th>Value</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${escapeHtml(r.crNumber)}</td>
+                <td>${escapeHtml(r.analyte)}</td>
+                <td>${escapeHtml(r.raw || r.value)}</td>
+                <td>${escapeHtml(r.reason)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const win = window.open("", "_blank");
+    if (!win) {
+      alert("Popup blocked. Please allow popups to print the abnormal list.");
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  }
+
+  /************************************************************
+   * 11. START TOOL
+   ************************************************************/
+  createPanel();
+  console.log("LIS AutoValidation Tool loaded. Use the floating panel to run validation.");
 })();
